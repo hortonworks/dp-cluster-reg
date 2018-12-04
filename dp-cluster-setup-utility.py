@@ -30,6 +30,7 @@ class InputValidator:
   class Any:
     def valid(self, input): return True
     def describe_failure(self, name): return
+
   class NonBlank:
     def valid(self, input): return len(input.strip()) > 0
     def describe_failure(self, name): print '%s cannot be blank' % name
@@ -68,6 +69,10 @@ class User:
       validator.describe_failure(description)
       input = ""
     return input
+
+  @classmethod
+  def any_input(cls, prompt='Press enter to continue'):
+    return cls.input(prompt, 'any', validator=InputValidator.Any())
 
 class SslContext:
   def build(self):
@@ -882,8 +887,8 @@ if __name__ == '__main__':
   knox = Knox(
     Url.ask_for('Knox'),
     Credentials.ask_for('Knox Admin'),
-    gateway_path=ambari.cluster.config_property('gateway-site', 'gateway.path', default='gateway')
-  )
+    gateway_path=ambari.cluster.config_property('gateway-site', 'gateway.path', default='gateway'))
+
   for topology in [TokenTopology(dp.public_key()), DpProxyTopology(ambari, dp.dependency_names())]:
     print 'Deploying Knox topology:', topology.name
     topology.deploy(knox)
@@ -893,7 +898,7 @@ if __name__ == '__main__':
   ambari.enable_trusted_proxy_for_ambari()
 
   print 'Done. You need to go into Ambari, confirm the changes and do restarts.'
-  User.input('Press enter to continue.', 'any', validator=InputValidator.Any())
+  User.any_input()
 
   print 'Registering cluster to DataPlane...'
   print dp.register_ambari(ambari, knox)
