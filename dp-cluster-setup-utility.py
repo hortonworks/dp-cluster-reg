@@ -45,6 +45,8 @@ class InputValidator:
 
   class Url:
     def valid(self, input):
+      if not (input.startswith('http://') or input.startswith('https://')):
+        return False
       result = urlparse(input)
       return result.scheme and result.netloc
 
@@ -57,7 +59,7 @@ class User:
     return cls.input(prompt, '', default='y' if default else 'n', validator=InputValidator.YesNo()) == 'y'
 
   @classmethod
-  def input(clas, prompt, description, default="", sensitive=False, validator=InputValidator.NonBlank()):
+  def input(cls, prompt, description, default="", sensitive=False, validator=InputValidator.NonBlank()):
     input = ""
     prompt = "%s [%s]: " % (prompt, default) if default else prompt + ": "
     while not input:
@@ -207,13 +209,15 @@ class RestClient:
                headers=[],
                ssl_context=SslContext(),
                request_transformer=lambda r:r,
-               response_transformer=lambda url, code, data: (code, data)):
+               response_transformer=lambda url, code, data: (code, data),
+               timeout = 120):
     self.base_url = an_url
     self.credentials = credentials
     self.default_headers = headers
     self.ssl_context = ssl_context
     self.request_transformer = request_transformer
     self.response_transformer = response_transformer
+    self.timeout = timeout
 
   def get(self, suffix_str, response_transformer=None, headers=[]):
     request, ssl_context = self._request(suffix_str, 'GET', self.request_transformer, headers=headers)
@@ -241,7 +245,7 @@ class RestClient:
 
   def _response(self, request, ssl_context, response_transformer):
     try:
-      with closing(urllib2.urlopen(request, context=ssl_context)) as response:
+      with closing(urllib2.urlopen(request, context=ssl_context, timeout=self.timeout)) as response:
         return response_transformer(request.get_full_url(), response.getcode(), response.read())
     except urllib2.HTTPError as e:
       print '* Error while requesting URL: %s' % request.get_full_url()
@@ -437,7 +441,7 @@ class Cluster:
     return self.config_property('knox-env', 'knox_user', default='knox')
 
   def __str__(self):
-    return 'Cluster: %s (%s)' % (self.cluster_name, self.client.base_url)
+    return 'Cluster: %s' % self.cluster_name
 
 class NoClusterFound(Exception): pass
 class NoConfigFound(Exception): pass
@@ -504,6 +508,11 @@ DPPROFILER = Dependency('DPPROFILER', 'Dataplane Profiler')
 BEACON = Dependency('BEACON', 'DLM Engine')
 STREAMSMSGMGR = Dependency('STREAMSMSGMGR', 'Streams Messaging Manager')
 DATA_ANALYTICS_STUDIO = Dependency('DATA_ANALYTICS_STUDIO', 'Data Analytics Studio')
+ATLAS = Dependency('ATLAS', 'Atlas')
+KAFKA = Dependency('KAFKA', 'Kafka')
+ZOOKEEPER = Dependency('ZOOKEEPER', 'Zookeeper')
+HIVE = Dependency('HIVE', 'Hive')
+HDFS = Dependency('HDFS', 'Hdfs')
 
 class DataPlain:
   def __init__(self, url, credentials):
@@ -511,16 +520,16 @@ class DataPlain:
     self.credentials = credentials
     self.client = RestClient.forJsonApi(self.base_url, credentials)
     self.available_apps = [
-      DpApp('DSS', dependencies=[KNOX, DPPROFILER]),
-      DpApp('DLM', dependencies=[KNOX, BEACON]),
-      DpApp('SMM', dependencies=[KNOX, STREAMSMSGMGR]),
-      DpApp('DAS', dependencies=[KNOX, DATA_ANALYTICS_STUDIO])
+      DpApp('DSS', dependencies=[KNOX, DPPROFILER, ATLAS]),
+      DpApp('DLM', dependencies=[KNOX, BEACON, HIVE, HDFS]),
+      DpApp('SMM', dependencies=[KNOX, STREAMSMSGMGR, KAFKA, ZOOKEEPER]),
+      DpApp('DAS', dependencies=[KNOX, DATA_ANALYTICS_STUDIO, HIVE])
     ]
 
   def check_dependencies(self, cluster):
     print 'Which DataPlane apps you want to use?'
     self.select_apps()
-    print 'Checking Ambari and Cluster...'
+    print 'Checking Ambari and %s...' % cluster
     cluster_services = cluster.service_names()
     already_checked = set()
     has_missing = False
