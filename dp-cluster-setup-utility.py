@@ -504,6 +504,7 @@ class DpApp:
     self.selected = False
 
 KNOX = Dependency('KNOX', 'Knox')
+RANGER = Dependency('RANGER', 'Ranger')
 DPPROFILER = Dependency('DPPROFILER', 'Dataplane Profiler')
 BEACON = Dependency('BEACON', 'DLM Engine')
 STREAMSMSGMGR = Dependency('STREAMSMSGMGR', 'Streams Messaging Manager')
@@ -520,10 +521,10 @@ class DataPlain:
     self.credentials = credentials
     self.client = RestClient.forJsonApi(self.base_url, credentials)
     self.available_apps = [
-      DpApp('DSS', dependencies=[KNOX, DPPROFILER, ATLAS]),
-      DpApp('DLM', dependencies=[KNOX, BEACON, HIVE, HDFS]),
-      DpApp('SMM', dependencies=[KNOX, STREAMSMSGMGR, KAFKA, ZOOKEEPER]),
-      DpApp('DAS', dependencies=[KNOX, DATA_ANALYTICS_STUDIO, HIVE])
+      DpApp('DSS', dependencies=[KNOX, RANGER, DPPROFILER, ATLAS]),
+      DpApp('DLM', dependencies=[KNOX, RANGER, BEACON, HIVE, HDFS]),
+      DpApp('SMM', dependencies=[KNOX, RANGER, STREAMSMSGMGR, KAFKA, ZOOKEEPER]),
+      DpApp('DAS', dependencies=[KNOX, RANGER, DATA_ANALYTICS_STUDIO, HIVE])
     ]
 
   def check_dependencies(self, cluster):
@@ -699,12 +700,7 @@ class DpProxyTopology:
         <role>AMBARI</role>
         <url>{ambari_protocol}://{ambari_host}:{ambari_port}</url>
      </service>
-     <service>
-        <role>AMBARIUI</role>
-        <url>{ambari_protocol}://{ambari_host}:{ambari_port}</url>
-     </service>
      {ranger}
-     {ranger_ui}
      {atlas}
      {atlas_api}
      {dpprofiler}
@@ -713,23 +709,21 @@ class DpProxyTopology:
      {das}
   </topology>"""
 
-  def __init__(self, ambari, dp_agents, name='dp-proxy'):
+  def __init__(self, ambari, role_names, name='dp-proxy'):
     self.ambari = ambari
-    self.dp_agents = dp_agents
+    self.role_names = role_names
     self.name = name
 
   def deploy(self, knox):
-    service_names = ambari.cluster.service_names()
     template = DpProxyTopology.TEMPLATE.format(
       knox_url = str(knox.base_url),
       timestamp = int(time.time()),
       ambari_protocol = self.ambari.base_url.protocol(),
       ambari_host = self.ambari.internal_host,
       ambari_port = self.ambari.base_url.port(),
-      ranger = self.ranger(service_names),
-      ranger_ui = self.ranger_ui(service_names),
-      atlas = self.atlas(service_names),
-      atlas_api = self.atlas_api(service_names),
+      ranger = self.ranger(),
+      atlas = self.atlas(),
+      atlas_api = self.atlas_api(),
       dpprofiler = self.dpprofiler(),
       beacon = self.beacon(),
       streamsmsgmgr = self.streamsmsgmgr(),
@@ -737,29 +731,26 @@ class DpProxyTopology:
     )
     return knox.add_topology(self.name, template)
 
-  def ranger(self, service_names):
-    return self.role('RANGER', self.ranger_url()) if 'RANGER' in service_names else ''
+  def ranger(self):
+    return self.role('RANGER', self.ranger_url()) if 'RANGER' in self.role_names else ''
 
-  def ranger_ui(self, service_names):
-    return self.role('RANGERUI', self.ranger_url()) if 'RANGER' in service_names else ''
+  def atlas(self):
+    return self.role('ATLAS', self.atlas_url()) if 'ATLAS' in self.role_names else ''
 
-  def atlas(self, service_names):
-    return self.role('ATLAS', self.atlas_url()) if 'ATLAS' in service_names else ''
-
-  def atlas_api(self, service_names):
-    return self.role('ATLAS-API', self.atlas_url()) if 'ATLAS' in service_names else ''
+  def atlas_api(self):
+    return self.role('ATLAS-API', self.atlas_url()) if 'ATLAS' in self.role_names else ''
 
   def dpprofiler(self):
-    return self.role('DPPROFILER', self.dpprofiler_url()) if 'DPPROFILER' in self.dp_agents else ''
+    return self.role('DPPROFILER', self.dpprofiler_url()) if 'DPPROFILER' in self.role_names else ''
 
   def beacon(self):
-    return self.role('BEACON', self.beacon_url()) if 'BEACON' in self.dp_agents else ''
+    return self.role('BEACON', self.beacon_url()) if 'BEACON' in self.role_names else ''
 
   def streamsmsgmgr(self):
-    return self.role('STREAMSMSGMGR', self.streamsmsgmgr_url()) if 'STREAMSMSGMGR' in self.dp_agents else ''
+    return self.role('STREAMSMSGMGR', self.streamsmsgmgr_url()) if 'STREAMSMSGMGR' in self.role_names else ''
 
   def das(self):
-    return self.role('DATA_ANALYTICS_STUDIO', self.das_url()) if 'DATA_ANALYTICS_STUDIO' in self.dp_agents else ''
+    return self.role('DATA_ANALYTICS_STUDIO', self.das_url()) if 'DATA_ANALYTICS_STUDIO' in self.role_names else ''
 
   def role(self, name, url):
     return """
@@ -902,14 +893,17 @@ if __name__ == '__main__':
     print 'Deploying Knox topology:', topology.name
     topology.deploy(knox)
 
-  ambari.enable_trusted_proxy_for_ranger()
-  ambari.enable_trusted_proxy_for_atlas()
+  if 'RANGER' in dp.dependency_names():
+    ambari.enable_trusted_proxy_for_ranger()
+  if 'ATLAS' in dp.dependency_names():
+    ambari.enable_trusted_proxy_for_atlas()
   ambari.enable_trusted_proxy_for_ambari()
 
   print 'Done. You need to go into Ambari, confirm the changes and do restarts.'
   User.any_input()
 
   print 'Registering cluster to DataPlane...'
-  print dp.register_ambari(ambari, knox)
+  response = dp.register_ambari(ambari, knox)
+  print 'Cluster is registered with id', response['id']
 
   print 'Success! You are all done, your cluster is registered and ready to use'
