@@ -343,11 +343,13 @@ class Ambari:
       return
     print 'Enabling Knox Trusted Proxy Support in Ranger...'
     knox_user = self.cluster.knox_user()
+    print 'WARNING: Adding ranger.proxyuser.%s.users=* to ranger-admin-site' % knox_user
+    print 'WARNING: Adding ranger.proxyuser.%s.groups=* to ranger-admin-site' % knox_user
     self.cluster.update_config('ranger-admin-site', {
       'ranger.authentication.allow.trustedproxy' : 'true',
       'ranger.proxyuser.%s.hosts' % knox_user: self.cluster.knox_host(),
-      'ranger.proxyuser.%s.users' % knox_user: '*', # TODO user input?
-      'ranger.proxyuser.%s.groups' % knox_user: '*', # TODO user input?
+      'ranger.proxyuser.%s.users' % knox_user: '*',
+      'ranger.proxyuser.%s.groups' % knox_user: '*',
     }, note='updated by dp-cluster-setup-utility')
 
   def enable_trusted_proxy_for_atlas(self):
@@ -355,24 +357,28 @@ class Ambari:
       return
     print 'Enabling Knox Trusted Proxy Support in Atlas...'
     knox_user = self.cluster.knox_user()
+    print 'WARNING: Adding atlas.proxyuser.%s.users=* to atlas-application.properties' % knox_user
+    print 'WARNING: Adding atlas.proxyuser.%s.users=* to atlas-application.properties' % knox_user
     self.cluster.update_config('atlas-application.properties', {
       'atlas.authentication.method.trustedproxy' : 'true',
       'atlas.proxyuser.%s.hosts' % knox_user: self.cluster.knox_host(),
-      'atlas.proxyuser.%s.users' % knox_user: '*', # TODO user input?
-      'atlas.proxyuser.%s.groups' % knox_user: '*', # TODO user input?
+      'atlas.proxyuser.%s.users' % knox_user: '*',
+      'atlas.proxyuser.%s.groups' % knox_user: '*',
     }, note='updated by dp-cluster-setup-utility')
 
   def enable_trusted_proxy_for_ambari(self):
     print 'Enabling Knox Trusted Proxy Support in Ambari...'
     knox_user = self.cluster.knox_user()
+    print 'WARNING: Adding ambari.tproxy.proxyuser.%s.users=* to tproxy-configuration' % knox_user
+    print 'WARNING: Adding ambari.tproxy.proxyuser.%s.users=* to tproxy-configuration' % knox_user
     _, response = self.client.post('services/AMBARI/components/AMBARI_SERVER/configurations', {
       'Configuration': {
         'category' : 'tproxy-configuration',
         'properties': {
           'ambari.tproxy.authentication.enabled': 'true',
           'ambari.tproxy.proxyuser.%s.hosts' % knox_user:  self.cluster.knox_host(),
-          'ambari.tproxy.proxyuser.%s.users' % knox_user:  '*', # TODO user input?
-          'ambari.tproxy.proxyuser.%s.groups' % knox_user: '*'  # TODO user input?
+          'ambari.tproxy.proxyuser.%s.users' % knox_user:  '*',
+          'ambari.tproxy.proxyuser.%s.groups' % knox_user: '*'
         }
       }
     })
