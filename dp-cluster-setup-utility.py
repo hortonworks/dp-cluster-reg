@@ -210,7 +210,7 @@ class RestClient:
                ssl_context=SslContext(),
                request_transformer=lambda r:r,
                response_transformer=lambda url, code, data: (code, data),
-               timeout = 120):
+               timeout = 60):
     self.base_url = an_url
     self.credentials = credentials
     self.default_headers = headers
@@ -447,7 +447,7 @@ class Cluster:
     return self.config_property('knox-env', 'knox_user', default='knox')
 
   def __str__(self):
-    return 'your %s cluster' % self.cluster_name
+    return '%s cluster' % self.cluster_name
 
 class NoClusterFound(Exception): pass
 class NoConfigFound(Exception): pass
@@ -536,7 +536,7 @@ class DataPlain:
   def check_dependencies(self, cluster):
     print '\nWhich DataPlane applications do you want to use with this cluster?'
     self.select_apps()
-    print '\nChecking Ambari and %s ...' % cluster
+    print '\nChecking Ambari and your %s ...' % cluster
     cluster_services = cluster.service_names()
     already_checked = set()
     has_missing = False
@@ -597,7 +597,7 @@ class DataPlain:
     return {
       'dcName': User.input('Data Center Name', 'dcName'),
       'ambariUrl': ambari_url_via_knox,
-      'location': 12,
+      'location': 6789,
       'isDatalake': self.has_selected_app('Data Steward Studio (DSS)'),
       'name': ambari.cluster.cluster_name,
       'description': User.input('Cluster Descriptions', 'description'),
@@ -722,7 +722,7 @@ class DpProxyTopology:
 
   def deploy(self, knox):
     template = DpProxyTopology.TEMPLATE.format(
-      base_url = str(knox.base_url),
+      knox_url = str(knox.base_url),
       timestamp = int(time.time()),
       ambari_protocol = self.ambari.base_url.protocol(),
       ambari_host = self.ambari.internal_host,
