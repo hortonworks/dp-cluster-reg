@@ -357,9 +357,9 @@ class Ambari:
       return
     print 'Enabling Knox Trusted Proxy Support in Atlas...'
     knox_user = self.cluster.knox_user()
-    print '  Please be aware: Adding atlas.proxyuser.%s.users=* to atlas-application.properties' % knox_user
-    print '  Please be aware: Adding atlas.proxyuser.%s.users=* to atlas-application.properties' % knox_user
-    self.cluster.update_config('atlas-application.properties', {
+    print '  Please be aware: Adding atlas.proxyuser.%s.users=* to application-properties' % knox_user
+    print '  Please be aware: Adding atlas.proxyuser.%s.users=* to application-properties' % knox_user
+    self.cluster.update_config('application-properties', {
       'atlas.authentication.method.trustedproxy' : 'true',
       'atlas.proxyuser.%s.hosts' % knox_user: self.cluster.knox_host(),
       'atlas.proxyuser.%s.users' % knox_user: '*',
@@ -435,7 +435,7 @@ class Cluster:
 
   def config(self, config_type):
     code, data = self.client.get(Url('configurations').query_params(type=config_type))
-    return Configs(self.client, [Config(self.client, each) for each in data['items']])
+    return Configs(self.client, [Config(self.client, each) for each in data['items']], config_type)
 
   def config_property(self, config_type, property_name, default=None):
     return self.config(config_type).latest().properties().get(property_name, default)
@@ -471,13 +471,14 @@ class Config:
     return json.dumps(self.config)
 
 class Configs:
-  def __init__(self, client, config_list):
+  def __init__(self, client, config_list, config_type):
     self.client = client
     self.configs = sorted(config_list, key=lambda config: config.version())
+    self.config_type = config_type
 
   def latest(self):
     if len(self.configs) < 1:
-      raise NoConfigFound()
+      raise NoConfigFound(self.config_type)
     return self.configs[-1]
 
 class Stack:
