@@ -271,7 +271,7 @@ class JsonTransformer:
     if 200 <= code <= 299:
       return code, self._parse(data)
     else:
-      return UnexpectedHttpCode('Unexpected http code: %d url: %s response: %s' % (code, url, data))
+      return UnexpectedHttpCode('Unexpected HTTP code: %d url: %s response: %s' % (code, url, data))
 
   def _parse(self, a_str):
     if not a_str: 
@@ -343,8 +343,8 @@ class Ambari:
       return
     print 'Enabling Knox Trusted Proxy Support in Ranger...'
     knox_user = self.cluster.knox_user()
-    print 'WARNING: Adding ranger.proxyuser.%s.users=* to ranger-admin-site' % knox_user
-    print 'WARNING: Adding ranger.proxyuser.%s.groups=* to ranger-admin-site' % knox_user
+    print '  Please be aware: Adding ranger.proxyuser.%s.users=* to ranger-admin-site' % knox_user
+    print '  Please be aware: Adding ranger.proxyuser.%s.groups=* to ranger-admin-site' % knox_user
     self.cluster.update_config('ranger-admin-site', {
       'ranger.authentication.allow.trustedproxy' : 'true',
       'ranger.proxyuser.%s.hosts' % knox_user: self.cluster.knox_host(),
@@ -357,8 +357,8 @@ class Ambari:
       return
     print 'Enabling Knox Trusted Proxy Support in Atlas...'
     knox_user = self.cluster.knox_user()
-    print 'WARNING: Adding atlas.proxyuser.%s.users=* to atlas-application.properties' % knox_user
-    print 'WARNING: Adding atlas.proxyuser.%s.users=* to atlas-application.properties' % knox_user
+    print '  Please be aware: Adding atlas.proxyuser.%s.users=* to atlas-application.properties' % knox_user
+    print '  Please be aware: Adding atlas.proxyuser.%s.users=* to atlas-application.properties' % knox_user
     self.cluster.update_config('atlas-application.properties', {
       'atlas.authentication.method.trustedproxy' : 'true',
       'atlas.proxyuser.%s.hosts' % knox_user: self.cluster.knox_host(),
@@ -369,8 +369,8 @@ class Ambari:
   def enable_trusted_proxy_for_ambari(self):
     print 'Enabling Knox Trusted Proxy Support in Ambari...'
     knox_user = self.cluster.knox_user()
-    print 'WARNING: Adding ambari.tproxy.proxyuser.%s.users=* to tproxy-configuration' % knox_user
-    print 'WARNING: Adding ambari.tproxy.proxyuser.%s.users=* to tproxy-configuration' % knox_user
+    print '  Please be aware: Adding ambari.tproxy.proxyuser.%s.users=* to tproxy-configuration' % knox_user
+    print '  Please be aware: Adding ambari.tproxy.proxyuser.%s.users=* to tproxy-configuration' % knox_user
     _, response = self.client.post('services/AMBARI/components/AMBARI_SERVER/configurations', {
       'Configuration': {
         'category' : 'tproxy-configuration',
@@ -447,7 +447,7 @@ class Cluster:
     return self.config_property('knox-env', 'knox_user', default='knox')
 
   def __str__(self):
-    return 'Cluster: %s' % self.cluster_name
+    return 'your %s cluster' % self.cluster_name
 
 class NoClusterFound(Exception): pass
 class NoConfigFound(Exception): pass
@@ -512,7 +512,7 @@ class DpApp:
 KNOX = Dependency('KNOX', 'Knox')
 RANGER = Dependency('RANGER', 'Ranger')
 DPPROFILER = Dependency('DPPROFILER', 'Dataplane Profiler')
-BEACON = Dependency('BEACON', 'DLM Engine')
+BEACON = Dependency('BEACON', 'Data Lifecycle Manager (DLM) Engine')
 STREAMSMSGMGR = Dependency('STREAMSMSGMGR', 'Streams Messaging Manager')
 DATA_ANALYTICS_STUDIO = Dependency('DATA_ANALYTICS_STUDIO', 'Data Analytics Studio')
 ATLAS = Dependency('ATLAS', 'Atlas')
@@ -527,16 +527,16 @@ class DataPlain:
     self.credentials = credentials
     self.client = RestClient.forJsonApi(self.base_url, credentials)
     self.available_apps = [
-      DpApp('DSS', dependencies=[KNOX, RANGER, DPPROFILER, ATLAS]),
-      DpApp('DLM', dependencies=[KNOX, RANGER, BEACON, HIVE, HDFS]),
-      DpApp('SMM', dependencies=[KNOX, RANGER, STREAMSMSGMGR, KAFKA, ZOOKEEPER]),
-      DpApp('DAS', dependencies=[KNOX, RANGER, DATA_ANALYTICS_STUDIO, HIVE])
+      DpApp('Data Steward Studio (DSS)', dependencies=[KNOX, RANGER, DPPROFILER, ATLAS]),
+      DpApp('Data Lifecycle Manager (DLM)', dependencies=[KNOX, RANGER, BEACON, HIVE, HDFS]),
+      DpApp('Streams Messaging Manager (SMM)', dependencies=[KNOX, RANGER, STREAMSMSGMGR, KAFKA, ZOOKEEPER]),
+      DpApp('Data Analytics Studio (DAS)', dependencies=[KNOX, RANGER, DATA_ANALYTICS_STUDIO, HIVE])
     ]
 
   def check_dependencies(self, cluster):
-    print 'Which DataPlane apps you want to use?'
+    print '\nWhich DataPlane applications do you want to use with this cluster?'
     self.select_apps()
-    print 'Checking Ambari and %s...' % cluster
+    print '\nChecking Ambari and %s ...' % cluster
     cluster_services = cluster.service_names()
     already_checked = set()
     has_missing = False
@@ -546,11 +546,11 @@ class DataPlain:
           sys.stdout.write('You need %s..' % dp_dep.display_name)
           sys.stdout.flush()
           if dp_dep.service_name in cluster_services:
-            print '..check'
+            print '.. Found'
           else:
-            print '..missing!'
+            print '.. Missing!'
             print '  To configure this cluster for %s, you need to install %s into the cluster.' % (dp_app.name, dp_dep.display_name)
-            print '  You must do this outside of this DataPlane utility'
+            print '  You must do this outside of this DataPlane utility, and re-run the script when completed.'
             has_missing = True
         already_checked.add(dp_dep)
     return has_missing
@@ -595,12 +595,12 @@ class DataPlain:
     ambari_url_via_knox = str(knox.base_url / 'gateway' / 'dp-proxy' / 'ambari')
     knox_url = str(knox.base_url / 'gateway')
     return {
-      'dcName': User.input('dcName', 'dcName'),
+      'dcName': User.input('Data Center Name', 'dcName'),
       'ambariUrl': ambari_url_via_knox,
       'location': 12,
-      'isDatalake': self.has_selected_app('DSS'),
+      'isDatalake': self.has_selected_app('Data Steward Studio (DSS)'),
       'name': ambari.cluster.cluster_name,
-      'description': User.input('description', 'description'),
+      'description': User.input('Cluster Descriptions', 'description'),
       'state': 'TO_SYNC',
       'ambariIpAddress': ambari.base_url.ip_address(),
       'allowUntrusted': True,
@@ -722,7 +722,7 @@ class DpProxyTopology:
 
   def deploy(self, knox):
     template = DpProxyTopology.TEMPLATE.format(
-      knox_url = str(knox.base_url),
+      base_url = str(knox.base_url),
       timestamp = int(time.time()),
       ambari_protocol = self.ambari.base_url.protocol(),
       ambari_host = self.ambari.internal_host,
@@ -844,13 +844,13 @@ class AmbariPrerequisites:
 
   def satisfied(self):
     if not self.stack_supported():
-      print 'Your stack (%s) is not supported. Supported stacks are: HDP-3.1 or newer.' % self.ambari.installed_stack()
+      print 'The stack version (%s) is not supported. Supported stacks are: HDP-3.1 or newer.' % self.ambari.installed_stack()
       return False
     if not self.security_type_supported():
-      print 'Your cluster is not kerberied. Please enable Kerberos in Ambari first.'
+      print 'Your cluster is not kerberied. Please enable Kerberos using Ambari first.'
       return False
     if not ambari.kerberos_enabled():
-      print 'Kerberos is not enabled for Ambari. Please enable it by running: ambari-server setup-kerberos.'
+      print 'Kerberos is not enabled for Ambari. Please enable it by running: ambari-server setup-kerberos from your Ambari Server host.'
       return False
     return True
 
@@ -879,10 +879,11 @@ class CookieThief:
     return
 
 if __name__ == '__main__':
+  print '\nThis script will check to ensure that all necessary pre-requisites have been met and then register this cluster with DataPlane.\n'
   print 'Tell me about your DataPlane Instance'
   dp = DataPlain(Url.ask_for('DataPlane'), Credentials.ask_for('DP Admin'))
 
-  print 'Tell me about your Ambari'
+  print "\nTell me about this cluster's Ambari Instance"
   ambari = Ambari(Url.ask_for('Ambari'), Credentials.ask_for('Ambari admin'))
 
   if not AmbariPrerequisites(ambari).satisfied():
@@ -905,11 +906,11 @@ if __name__ == '__main__':
     ambari.enable_trusted_proxy_for_atlas()
   ambari.enable_trusted_proxy_for_ambari()
 
-  print 'Done. You need to go into Ambari, confirm the changes and do restarts.'
+  print 'Cluster changes are complete! Please log into Ambari, confirm the changes made to your cluster as part of this script and restart affected services.'
   User.any_input()
 
   print 'Registering cluster to DataPlane...'
   response = dp.register_ambari(ambari, knox)
   print 'Cluster is registered with id', response['id']
 
-  print 'Success! You are all done, your cluster is registered and ready to use'
+  print 'Success! You are all set, your cluster is registered and ready to use.'
