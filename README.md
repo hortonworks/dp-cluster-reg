@@ -11,6 +11,7 @@ relationship between DataPlane and the cluster, and registers the cluster with D
 - DataPlane Cluster Agents (for the DataPlane Apps you plan to use) should be installed & configured in the cluster
 
 **Running the Script**
+
 Run this script as ```root``` on the cluster host with your Knox server.
 
 ```
