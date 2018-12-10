@@ -23,22 +23,25 @@ import ssl
 import sys
 import time
 import urllib2
+import os
+import pwd
+import grp
 from contextlib import closing
 from urlparse import urlparse
 
 class InputValidator:
   class Any:
     def valid(self, input): return True
-    def describe_failure(self, name): return
+    def describe_failure(self): return
 
   class NonBlank:
     def valid(self, input): return len(input.strip()) > 0
-    def describe_failure(self, name): print '%s cannot be blank' % name
+    def describe_failure(self): print 'Input cannot be blank'
 
   class Options:
     def __init__(self, a_set): self.options = a_set
     def valid(self, input): return input in self.options
-    def describe_failure(self, _): print 'Invalid option, please choose from: %s' % (', '.join(self.options))
+    def describe_failure(self): print 'Invalid option, please choose from: %s' % (', '.join(self.options))
 
   class YesNo(Options):
     def __init__(self): InputValidator.Options.__init__(self, ('y', 'n'))
@@ -50,14 +53,14 @@ class InputValidator:
       result = urlparse(input)
       return result.scheme and result.netloc
 
-    def describe_failure(self, name):
-      print 'The entered %s is not a valid URL. Use the following format http(s)://host[:port]' % name
+    def describe_failure(self):
+      print 'The entered URL is invalid. Use the following format http(s)://host[:port]'
 
 class User:
   def decision(self, prompt, name, default):
     return self.input(prompt, name, default='y' if default else 'n', validator=InputValidator.YesNo()) == 'y'
 
-  def input(self, prompt, name, default="", sensitive=False, validator=InputValidator.NonBlank()):
+  def input(self, prompt, id, default="", sensitive=False, validator=InputValidator.NonBlank()):
     input = ""
     prompt = "%s [%s]: " % (prompt, default) if default else prompt + ": "
     while not input:
@@ -66,17 +69,17 @@ class User:
         return default
       if validator.valid(input):
         return input
-      validator.describe_failure(name)
+      validator.describe_failure()
       input = ""
     return input
 
-  def url_input(self, name, default=None):
-    return Url(self.input('%s (http(s)://host:port)' % name, name, validator=InputValidator.Url(), default=default))
+  def url_input(self, name, id, default=None):
+    return Url(self.input('%s (http(s)://host:[port])' % name, id, validator=InputValidator.Url(), default=default))
 
-  def credential_input(self, name, default_user=None, default_password=None):
+  def credential_input(self, name, id, default_user=None, default_password=None):
     return Credentials(
-      self.input('%s username' % name, "%s username" % name, default=default_user),
-      self.input('%s password' % name, "%s password" % name, sensitive=True, default=default_password))
+      self.input('%s username' % name, id, default=default_user),
+      self.input('%s password' % name, id, sensitive=True, default=default_password))
 
   def any_input(self, prompt='Press enter to continue'):
     return self.input(prompt, 'any', validator=InputValidator.Any())
@@ -87,25 +90,25 @@ class Memorized:
     self.file_name = file_name
     self.history = self._load()
 
-  def decision(self, prompt, name, default):
-    answer = self.user.decision(prompt, name, self._get(name, default))
-    self._update({name: answer})
+  def decision(self, prompt, id, default):
+    answer = self.user.decision(prompt, id, self._get(id, default))
+    self._update({id: answer})
     return answer
 
-  def input(self, prompt, name, default="", sensitive=False, validator=InputValidator.NonBlank()):
-    answer = self.user.input(prompt, name, default=self._get(name, default), sensitive=sensitive, validator=validator)
+  def input(self, prompt, id, default="", sensitive=False, validator=InputValidator.NonBlank()):
+    answer = self.user.input(prompt, id, default=self._get(id, default), sensitive=sensitive, validator=validator)
     if not sensitive:
-      self._update({name: answer})
+      self._update({id: answer})
     return answer
 
-  def url_input(self, name, default=None):
-    answer = self.user.url_input(name, default=self._get(name, default))
-    self._update({name: str(answer)})
+  def url_input(self, name, id, default=None):
+    answer = self.user.url_input(name, id, default=self._get(id, default))
+    self._update({id: str(answer)})
     return answer
 
-  def credential_input(self, name, default_user=None, default_password=None):
-    key = "%s.username" % name
-    answer = self.user.credential_input(name, default_user=self._get(key, default_user), default_password=default_password)
+  def credential_input(self, name, id, default_user=None, default_password=None):
+    key = "%s.user" % id
+    answer = self.user.credential_input(name, id, default_user=self._get(key, default_user), default_password=default_password)
     self._update({key: answer.user})
     return answer
 
@@ -481,11 +484,20 @@ class Cluster:
   def config_property(self, config_type, property_name, default=None):
     return self.config(config_type).latest().properties().get(property_name, default)
 
+  def knox_url(self):
+    return Url.base('https', self.knox_host(), self.knox_port())
+
   def knox_host(self):
     return self.service('KNOX').component('KNOX_GATEWAY').host_names()[0]
 
+  def knox_port(self):
+    return int(self.config_property('gateway-site', 'gateway.port', default='8443'))
+
   def knox_user(self):
     return self.config_property('knox-env', 'knox_user', default='knox')
+
+  def knox_group(self):
+    return self.config_property('knox-env', 'knox_group', default='knox')
 
   def __str__(self):
     return '%s cluster' % self.cluster_name
@@ -546,8 +558,9 @@ class Dependency:
   def __hash__(self): return hash(self.service_name)
 
 class DpApp:
-  def __init__(self, name, dependencies=[]):
+  def __init__(self, name, id, dependencies=[]):
     self.name = name
+    self.id = id
     self.dependencies = list(dependencies)
     self.selected = False
 
@@ -569,10 +582,10 @@ class DataPlain:
     self.credentials = credentials
     self.client = RestClient.forJsonApi(self.base_url, credentials)
     self.available_apps = [
-      DpApp('Data Steward Studio (DSS)', dependencies=[KNOX, RANGER, DPPROFILER, ATLAS]),
-      DpApp('Data Lifecycle Manager (DLM)', dependencies=[KNOX, RANGER, BEACON, HIVE, HDFS]),
-      DpApp('Streams Messaging Manager (SMM)', dependencies=[KNOX, RANGER, STREAMSMSGMGR, KAFKA, ZOOKEEPER]),
-      DpApp('Data Analytics Studio (DAS)', dependencies=[KNOX, RANGER, DATA_ANALYTICS_STUDIO, HIVE])
+      DpApp('Data Steward Studio (DSS)', 'dss', dependencies=[KNOX, RANGER, DPPROFILER, ATLAS]),
+      DpApp('Data Lifecycle Manager (DLM)', 'dlm', dependencies=[KNOX, RANGER, BEACON, HIVE, HDFS]),
+      DpApp('Streams Messaging Manager (SMM)', 'smm', dependencies=[KNOX, RANGER, STREAMSMSGMGR, KAFKA, ZOOKEEPER]),
+      DpApp('Data Analytics Studio (DAS)', 'das', dependencies=[KNOX, RANGER, DATA_ANALYTICS_STUDIO, HIVE])
     ]
 
   def check_dependencies(self, cluster, user):
@@ -599,7 +612,7 @@ class DataPlain:
 
   def select_apps(self, user):
     for dp_app in self.available_apps:
-      dp_app.selected = user.decision('%s y/n' % dp_app.name, dp_app.name, default=False)
+      dp_app.selected = user.decision('%s y/n' % dp_app.name, dp_app.id, default=False)
 
   def selected_apps(self):
     return [each for each in self.available_apps if each.selected]
@@ -637,12 +650,12 @@ class DataPlain:
     ambari_url_via_knox = str(knox.base_url / 'gateway' / 'dp-proxy' / 'ambari')
     knox_url = str(knox.base_url / 'gateway')
     return {
-      'dcName': user.input('Data Center Name', 'dcName'),
+      'dcName': user.input('Data Center Name', 'reg.dc.name'),
       'ambariUrl': ambari_url_via_knox,
       'location': 6789,
       'isDatalake': self.has_selected_app('Data Steward Studio (DSS)'),
       'name': ambari.cluster.cluster_name,
-      'description': user.input('Cluster Descriptions', 'description'),
+      'description': user.input('Cluster Descriptions', 'reg.description'),
       'state': 'TO_SYNC',
       'ambariIpAddress': ambari.base_url.ip_address(),
       'allowUntrusted': True,
@@ -853,31 +866,30 @@ class DpProxyTopology:
     return self.ambari.cluster.service(service_name).component(component_name).host_names()[0]
 
 class Knox:
-  def __init__(self, url, credentials, api_version="v1", gateway_path='gateway'):
-    self.base_url = url
-    self.client = RestClient.forJsonApi(self.base_url / gateway_path / 'admin' / 'api' / api_version, credentials)
-    self.client.default_headers.append(Header.accept_json())
-    self.gateway_path = gateway_path
+  def __init__(self, base_url, knox_user, knox_group, topology_directory='/etc/knox/conf/topologies'):
+    self.base_url = base_url
+    self.knox_user = knox_user
+    self.knox_group = knox_group
+    self.topology_directory = self._check_dir(topology_directory)
 
-  def topologies(self):
-    _, response = self.client.get(Url('topologies'))
-    return response
-
-  def topology(self, topology_name):
-    _, response = self.client.get(Url('topologies') / topology_name)
-    return response
+  def _check_dir(self, topology_directory):
+    if not os.path.isdir(topology_directory):
+      raise RuntimeError('Knox topology directory does not exist: %s' % topology_directory)
+    return topology_directory
 
   def add_topology(self, topology_name, content):
-    _, response = self.client.put(
-      Url("topologies") / topology_name,
-      data=content,
-      request_transformer=lambda any:any,
-      headers=[Header.content_type('application/xml')])
-    return response
+    target = '%s/%s.xml' % (self.topology_directory, topology_name)
+    print 'Saving topology %s' % target
+    with open(target, 'w') as f: f.write(content)
+    print '  Changing ownership of %s to %s:%s.' % (topology_name, self.knox_user, self.knox_group)
+    os.chown(target, pwd.getpwnam(self.knox_user).pw_uid, grp.getgrnam(self.knox_group).gr_gid)
+    print '  Changing permissions of %s to %o.' % (topology_name, 0644)
+    os.chmod(target, 0644)
 
 class AmbariPrerequisites:
   def __init__(self, ambari):
     self.ambari = ambari
+    self.knox_host = ambari.cluster.knox_host()
 
   def satisfied(self):
     if not self.stack_supported():
@@ -889,6 +901,9 @@ class AmbariPrerequisites:
     if not ambari.kerberos_enabled():
       print 'Kerberos is not enabled for Ambari. Please enable it by running: ambari-server setup-kerberos from your Ambari Server host.'
       return False
+    if not self.running_on_knox_host():
+      print 'This script should be executed on the same host where Knox gateway is running (%s).' % self.knox_host
+      return False
     return True
 
   def stack_supported(self):
@@ -897,6 +912,22 @@ class AmbariPrerequisites:
 
   def security_type_supported(self):
     return self.ambari.cluster.security_type == 'KERBEROS'
+
+  def running_on_knox_host(self):
+    if self.knox_host in (socket.gethostname(), socket.getfqdn()):
+      return True
+    if self.knox_ip() == socket.gethostbyname(socket.gethostname()):
+      return True
+    hostname, aliases, ips = socket.gethostbyname_ex(socket.gethostname())
+    if self.knox_host == hostname or self.knox_host in aliases or self.knox_ip() in ips:
+      return True
+    return False
+
+  def knox_ip(self):
+    try:
+      return socket.gethostbyname(self.knox_host)
+    except Exception:
+      return None
 
 class CookieThief:
   def __init__(self):
@@ -915,25 +946,36 @@ class CookieThief:
           return cookie.value
     return
 
+class ScriptPrerequisites:
+  def satisfied(self):
+    if 'root' != self.current_user():
+      print 'This script should be executed with the root user.'
+      return False
+    return True
+
+  def current_user(self):
+    return pwd.getpwuid(os.getuid()).pw_name
+
 if __name__ == '__main__':
   user = Memorized(User())
   print '\nThis script will check to ensure that all necessary pre-requisites have been met and then register this cluster with DataPlane.\n'
+  print 'Please ensure that your cluster has kerberos enabled, Ambari has been configured to use kerberos for authentication, and Knox is installed. Once those steps have been done, run this script from the Knox host and follow the steps and prompts to complete the cluster registration process.\n'
+
+  if not ScriptPrerequisites().satisfied():
+    sys.exit(1)
+
   print 'Tell me about your DataPlane Instance'
-  dp = DataPlain(user.url_input('DataPlane URL'), user.credential_input('DP Admin'))
+  dp = DataPlain(user.url_input('DataPlane URL', 'dp.url'), user.credential_input('DP Admin', 'dp.admin'))
 
   print "\nTell me about this cluster's Ambari Instance"
-  ambari = Ambari(user.url_input('Ambari URL'), user.credential_input('Ambari admin'))
+  ambari = Ambari(user.url_input('Ambari URL', 'ambari.url'), user.credential_input('Ambari admin', 'ambari.admin'))
 
   if not AmbariPrerequisites(ambari).satisfied():
     sys.exit(1)
   if dp.check_dependencies(ambari.cluster, user):
     sys.exit(1)
 
-  knox = Knox(
-    user.url_input('Knox URL'),
-    user.credential_input('Knox Admin'),
-    gateway_path=ambari.cluster.config_property('gateway-site', 'gateway.path', default='gateway'))
-
+  knox = Knox(ambari.cluster.knox_url(), knox_user=ambari.cluster.knox_user(), knox_group=ambari.cluster.knox_group())
   for topology in [TokenTopology(dp.public_key()), DpProxyTopology(ambari, dp.dependency_names())]:
     print 'Deploying Knox topology:', topology.name
     topology.deploy(knox)
