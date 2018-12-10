@@ -51,15 +51,13 @@ class InputValidator:
       return result.scheme and result.netloc
 
     def describe_failure(self, name):
-      print '%s is not a valid URL. Use the following format http(s)://host[:port]' % name
+      print 'The entered %s is not a valid URL. Use the following format http(s)://host[:port]' % name
 
 class User:
-  @classmethod
-  def decision(cls, prompt, default):
-    return cls.input(prompt, '', default='y' if default else 'n', validator=InputValidator.YesNo()) == 'y'
+  def decision(self, prompt, name, default):
+    return self.input(prompt, name, default='y' if default else 'n', validator=InputValidator.YesNo()) == 'y'
 
-  @classmethod
-  def input(cls, prompt, description, default="", sensitive=False, validator=InputValidator.NonBlank()):
+  def input(self, prompt, name, default="", sensitive=False, validator=InputValidator.NonBlank()):
     input = ""
     prompt = "%s [%s]: " % (prompt, default) if default else prompt + ": "
     while not input:
@@ -68,13 +66,65 @@ class User:
         return default
       if validator.valid(input):
         return input
-      validator.describe_failure(description)
+      validator.describe_failure(name)
       input = ""
     return input
 
-  @classmethod
-  def any_input(cls, prompt='Press enter to continue'):
-    return cls.input(prompt, 'any', validator=InputValidator.Any())
+  def url_input(self, name, default=None):
+    return Url(self.input('%s (http(s)://host:port)' % name, name, validator=InputValidator.Url(), default=default))
+
+  def credential_input(self, name, default_user=None, default_password=None):
+    return Credentials(
+      self.input('%s username' % name, "%s username" % name, default=default_user),
+      self.input('%s password' % name, "%s password" % name, sensitive=True, default=default_password))
+
+  def any_input(self, prompt='Press enter to continue'):
+    return self.input(prompt, 'any', validator=InputValidator.Any())
+
+class Memorized:
+  def __init__(self, user, file_name='dp-cluster-setup-utility.history'):
+    self.user = user
+    self.file_name = file_name
+    self.history = self._load()
+
+  def decision(self, prompt, name, default):
+    answer = self.user.decision(prompt, name, self._get(name, default))
+    self._update({name: answer})
+    return answer
+
+  def input(self, prompt, name, default="", sensitive=False, validator=InputValidator.NonBlank()):
+    answer = self.user.input(prompt, name, default=self._get(name, default), sensitive=sensitive, validator=validator)
+    if not sensitive:
+      self._update({name: answer})
+    return answer
+
+  def url_input(self, name, default=None):
+    answer = self.user.url_input(name, default=self._get(name, default))
+    self._update({name: str(answer)})
+    return answer
+
+  def credential_input(self, name, default_user=None, default_password=None):
+    key = "%s.username" % name
+    answer = self.user.credential_input(name, default_user=self._get(key, default_user), default_password=default_password)
+    self._update({key: answer.user})
+    return answer
+
+  def any_input(self, prompt='Press enter to continue'):
+    return self.user.any_input(prompt)
+
+  def _load(self):
+    try:
+      with open(self.file_name, 'r') as f: return json.load(f)
+    except Exception:
+      return {}
+
+  def _update(self, update):
+    self.history.update(update)
+    with open(self.file_name, 'w') as f:
+      json.dump(self.history, f, indent=2)
+
+  def _get(self, name, default):
+    return self.history.get(name, "") or default
 
 class SslContext:
   def build(self):
@@ -100,10 +150,6 @@ class PermissiveSslContext:
     return context
 
 class Url:
-  @classmethod
-  def ask_for(cls, name, default=None):
-    return Url(User.input('%s URL' % name, 'URL', validator=InputValidator.Url(), default=default))
-
   @classmethod
   def base(cls, protocol, host, port):
     return cls('%s://%s:%s' % (protocol, host, port))
@@ -173,18 +219,13 @@ class Header:
 
 class Credentials:
   @staticmethod
-  def ask_for(name, default_user=None, default_password=None):
-    return Credentials(
-      User.input('%s username' % name, "Username", default=default_user),
-      User.input('%s password' % name, "Password", sensitive=True, default=default_password))
-
-  @staticmethod
   def empty():
     class EmptyCredentials:
       def add_to(self, request): pass
     return EmptyCredentials()
 
   def __init__(self, user, password):
+    self.user = user
     self.header = Header(
       'Authorization',
       'Basic %s' % base64.encodestring('%s:%s' % (user, password)).replace('\n', ''))
@@ -534,9 +575,9 @@ class DataPlain:
       DpApp('Data Analytics Studio (DAS)', dependencies=[KNOX, RANGER, DATA_ANALYTICS_STUDIO, HIVE])
     ]
 
-  def check_dependencies(self, cluster):
+  def check_dependencies(self, cluster, user):
     print '\nWhich DataPlane applications do you want to use with this cluster?'
-    self.select_apps()
+    self.select_apps(user)
     print '\nChecking Ambari and your %s ...' % cluster
     cluster_services = cluster.service_names()
     already_checked = set()
@@ -556,9 +597,9 @@ class DataPlain:
         already_checked.add(dp_dep)
     return has_missing
 
-  def select_apps(self):
+  def select_apps(self, user):
     for dp_app in self.available_apps:
-      dp_app.selected = User.decision('%s y/n' % dp_app.name, default=False)
+      dp_app.selected = user.decision('%s y/n' % dp_app.name, dp_app.name, default=False)
 
   def selected_apps(self):
     return [each for each in self.available_apps if each.selected]
@@ -584,24 +625,24 @@ class DataPlain:
       key = key[:-len('-----END CERTIFICATE-----')]
     return key
 
-  def register_ambari(self, ambari, knox):
+  def register_ambari(self, ambari, knox, user):
     _, resp = self.client.post(
       'api/lakes',
-      data=self.registration_request(ambari, knox),
+      data=self.registration_request(ambari, knox, user),
       headers=[Header.content_type('application/json'), self.token_cookies()]
     )
     return resp
 
-  def registration_request(self, ambari, knox):
+  def registration_request(self, ambari, knox, user):
     ambari_url_via_knox = str(knox.base_url / 'gateway' / 'dp-proxy' / 'ambari')
     knox_url = str(knox.base_url / 'gateway')
     return {
-      'dcName': User.input('Data Center Name', 'dcName'),
+      'dcName': user.input('Data Center Name', 'dcName'),
       'ambariUrl': ambari_url_via_knox,
       'location': 6789,
       'isDatalake': self.has_selected_app('Data Steward Studio (DSS)'),
       'name': ambari.cluster.cluster_name,
-      'description': User.input('Cluster Descriptions', 'description'),
+      'description': user.input('Cluster Descriptions', 'description'),
       'state': 'TO_SYNC',
       'ambariIpAddress': ambari.base_url.ip_address(),
       'allowUntrusted': True,
@@ -708,7 +749,6 @@ class DpProxyTopology:
         <url>{ambari_protocol}://{ambari_host}:{ambari_port}</url>
      </service>
      {ranger}
-     {atlas}
      {atlas_api}
      {dpprofiler}
      {beacon}
@@ -729,7 +769,6 @@ class DpProxyTopology:
       ambari_host = self.ambari.internal_host,
       ambari_port = self.ambari.base_url.port(),
       ranger = self.ranger(),
-      atlas = self.atlas(),
       atlas_api = self.atlas_api(),
       dpprofiler = self.dpprofiler(),
       beacon = self.beacon(),
@@ -740,9 +779,6 @@ class DpProxyTopology:
 
   def ranger(self):
     return self.role('RANGER', self.ranger_url()) if 'RANGER' in self.role_names else ''
-
-  def atlas(self):
-    return self.role('ATLAS', self.atlas_url()) if 'ATLAS' in self.role_names else ''
 
   def atlas_api(self):
     return self.role('ATLAS-API', self.atlas_url()) if 'ATLAS' in self.role_names else ''
@@ -880,21 +916,22 @@ class CookieThief:
     return
 
 if __name__ == '__main__':
+  user = Memorized(User())
   print '\nThis script will check to ensure that all necessary pre-requisites have been met and then register this cluster with DataPlane.\n'
   print 'Tell me about your DataPlane Instance'
-  dp = DataPlain(Url.ask_for('DataPlane'), Credentials.ask_for('DP Admin'))
+  dp = DataPlain(user.url_input('DataPlane URL'), user.credential_input('DP Admin'))
 
   print "\nTell me about this cluster's Ambari Instance"
-  ambari = Ambari(Url.ask_for('Ambari'), Credentials.ask_for('Ambari admin'))
+  ambari = Ambari(user.url_input('Ambari URL'), user.credential_input('Ambari admin'))
 
   if not AmbariPrerequisites(ambari).satisfied():
     sys.exit(1)
-  if dp.check_dependencies(ambari.cluster):
+  if dp.check_dependencies(ambari.cluster, user):
     sys.exit(1)
 
   knox = Knox(
-    Url.ask_for('Knox'),
-    Credentials.ask_for('Knox Admin'),
+    user.url_input('Knox URL'),
+    user.credential_input('Knox Admin'),
     gateway_path=ambari.cluster.config_property('gateway-site', 'gateway.path', default='gateway'))
 
   for topology in [TokenTopology(dp.public_key()), DpProxyTopology(ambari, dp.dependency_names())]:
@@ -908,10 +945,10 @@ if __name__ == '__main__':
   ambari.enable_trusted_proxy_for_ambari()
 
   print 'Cluster changes are complete! Please log into Ambari, confirm the changes made to your cluster as part of this script and restart affected services.'
-  User.any_input()
+  user.any_input()
 
   print 'Registering cluster to DataPlane...'
-  response = dp.register_ambari(ambari, knox)
+  response = dp.register_ambari(ambari, knox, user)
   print 'Cluster is registered with id', response['id']
 
   print 'Success! You are all set, your cluster is registered and ready to use.'
