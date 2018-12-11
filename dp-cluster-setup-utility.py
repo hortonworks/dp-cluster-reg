@@ -31,7 +31,7 @@ from urlparse import urlparse
 
 class InputValidator:
   class Any:
-    def valid(self, input): return True
+    def valid(self, _): return True
     def describe_failure(self): return
 
   class NonBlank:
@@ -975,7 +975,7 @@ if __name__ == '__main__':
   if dp.check_dependencies(ambari.cluster, user):
     sys.exit(1)
 
-  knox = Knox(ambari.cluster.knox_url(), knox_user=ambari.cluster.knox_user(), knox_group=ambari.cluster.knox_group())
+  knox = Knox(user.url_input('Knox URL', 'knox.url'), knox_user=ambari.cluster.knox_user(), knox_group=ambari.cluster.knox_group())
   for topology in [TokenTopology(dp.public_key()), DpProxyTopology(ambari, dp.dependency_names())]:
     print 'Deploying Knox topology:', topology.name
     topology.deploy(knox)
