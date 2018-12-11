@@ -975,7 +975,7 @@ if __name__ == '__main__':
   if dp.check_dependencies(ambari.cluster, user):
     sys.exit(1)
 
-  knox = Knox(user.url_input('Knox URL that is network accessible from DataPlane', 'knox.url', default=ambari.cluster.knox_url()), knox_user=ambari.cluster.knox_user(), knox_group=ambari.cluster.knox_group())
+  knox = Knox(user.url_input('Knox URL that is network accessible from DataPlane', 'knox.url', default=str(ambari.cluster.knox_url())), knox_user=ambari.cluster.knox_user(), knox_group=ambari.cluster.knox_group())
   for topology in [TokenTopology(dp.public_key()), DpProxyTopology(ambari, dp.dependency_names())]:
     print 'Deploying Knox topology:', topology.name
     topology.deploy(knox)
