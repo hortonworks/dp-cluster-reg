@@ -576,7 +576,7 @@ ZOOKEEPER = Dependency('ZOOKEEPER', 'Zookeeper')
 HIVE = Dependency('HIVE', 'Hive')
 HDFS = Dependency('HDFS', 'Hdfs')
 
-class DataPlain:
+class DataPlane:
   def __init__(self, url, credentials):
     self.base_url = url
     self.credentials = credentials
@@ -965,7 +965,7 @@ if __name__ == '__main__':
     sys.exit(1)
 
   print 'Tell me about your DataPlane Instance'
-  dp = DataPlain(user.url_input('DataPlane URL', 'dp.url'), user.credential_input('DP Admin', 'dp.admin'))
+  dp = DataPlane(user.url_input('DataPlane URL', 'dp.url'), user.credential_input('DP Admin', 'dp.admin'))
 
   print "\nTell me about this cluster's Ambari Instance"
   ambari = Ambari(user.url_input('Ambari URL', 'ambari.url'), user.credential_input('Ambari admin', 'ambari.admin'))
