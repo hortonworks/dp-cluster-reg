@@ -759,6 +759,7 @@ class DpProxyTopology:
      </gateway>
      <service>
         <role>AMBARI</role>
+        <version>0.2.2.0</version>
         <url>{ambari_protocol}://{ambari_host}:{ambari_port}</url>
      </service>
      {ranger}
@@ -791,10 +792,10 @@ class DpProxyTopology:
     return knox.add_topology(self.name, template)
 
   def ranger(self):
-    return self.role('RANGER', self.ranger_url()) if 'RANGER' in self.role_names else ''
+    return self.role('RANGER', self.ranger_url(), '0.1.0.0') if 'RANGER' in self.role_names else ''
 
   def atlas_api(self):
-    return self.role('ATLAS-API', self.atlas_url()) if 'ATLAS' in self.role_names else ''
+    return self.role('ATLAS-API', self.atlas_url(), '0.1.2.0') if 'ATLAS' in self.role_names else ''
 
   def dpprofiler(self):
     return self.role('DPPROFILER', self.dpprofiler_url()) if 'DPPROFILER' in self.role_names else ''
@@ -808,12 +809,16 @@ class DpProxyTopology:
   def das(self):
     return self.role('DATA_ANALYTICS_STUDIO', self.das_url()) if 'DATA_ANALYTICS_STUDIO' in self.role_names else ''
 
-  def role(self, name, url):
+  def role(self, name, url, version=''):
+    version_str = ''
+    if version:
+      version_str = '<version>{version}</version>'.format(version=version)
     return """
     <service>
       <role>{role}</role>
+      {version_str}
       <url>{url}</url>
-    </service>""".format(role=name, url=url)
+    </service>""".format(role=name, url=url, version_str=version_str)
 
   def ranger_url(self):
     host = self.host_name('RANGER', 'RANGER_ADMIN')
