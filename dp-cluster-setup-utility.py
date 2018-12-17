@@ -713,7 +713,7 @@ class TokenTopology:
         <role>KNOXTOKEN</role>
         <param>
            <name>knox.token.ttl</name>
-           <value>10000</value>
+           <value>{token_ttl}</value>
         </param>
         <param>
            <name>knox.token.client.data</name>
@@ -722,15 +722,17 @@ class TokenTopology:
      </service>
   </topology>"""
 
-  def __init__(self, pem, name='token'):
+  def __init__(self, pem, name='token', token_ttl=100000):
     self.pem = pem
     self.name = name
+    self.token_ttl = token_ttl
 
   def deploy(self, knox):
     template = TokenTopology.TEMPLATE.format(
       knox_url = str(knox.base_url),
       timestamp = int(time.time()),
-      pem = self.pem
+      pem = self.pem,
+      token_ttl = self.token_ttl
     )
     return knox.add_topology(self.name, template)
 
@@ -767,7 +769,6 @@ class DpProxyTopology:
      {dpprofiler}
      {beacon}
      {streamsmsgmgr}
-     {das}
   </topology>"""
 
   def __init__(self, ambari, role_names, name='dp-proxy'):
@@ -787,7 +788,6 @@ class DpProxyTopology:
       dpprofiler = self.dpprofiler(),
       beacon = self.beacon(),
       streamsmsgmgr = self.streamsmsgmgr(),
-      das = self.das()
     )
     return knox.add_topology(self.name, template)
 
@@ -805,9 +805,6 @@ class DpProxyTopology:
 
   def streamsmsgmgr(self):
     return self.role('STREAMSMSGMGR', self.streamsmsgmgr_url()) if 'STREAMSMSGMGR' in self.role_names else ''
-
-  def das(self):
-    return self.role('DATA_ANALYTICS_STUDIO', self.das_url()) if 'DATA_ANALYTICS_STUDIO' in self.role_names else ''
 
   def role(self, name, url, version=''):
     version_str = ''
@@ -861,14 +858,48 @@ class DpProxyTopology:
       port = self.ambari.cluster.config_property('streams-messaging-manager-common', 'port')
       return 'http://%s:%s' % (host, port)
 
-  def das_url(self):
-    host = self.host_name('DATA_ANALYTICS_STUDIO', 'DATA_ANALYTICS_STUDIO_EVENT_PROCESSOR')
-    port = self.ambari.cluster.config_property('data_analytics_studio-event_processor-properties', 'data_analytics_studio_event_processor_admin_server_port')
-    proto = self.ambari.cluster.config_property('data_analytics_studio-event_processor-properties', 'data_analytics_studio_event_processor_server_protocol')
-    return '%s://%s:%s' % (proto, host, port)
-
   def host_name(self, service_name, component_name):
     return self.ambari.cluster.service(service_name).component(component_name).host_names()[0]
+
+class RedirectTopology:
+  TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
+  <topology>
+    <name>tokensso</name>
+    <gateway>
+        <provider>
+            <role>federation</role>
+            <name>JWTProvider</name>
+            <enabled>true</enabled>
+        </provider>
+        <provider>
+            <role>identity-assertion</role>
+            <name>Default</name>
+            <enabled>true</enabled>
+        </provider>
+    </gateway>
+    <service>
+        <role>KNOXSSO</role>
+        <param>
+            <name>knoxsso.cookie.secure.only</name>
+            <value>true</value>
+        </param>
+        <param>
+            <name>knoxsso.token.ttl</name>
+            <value>600000</value>
+        </param>
+        <param>
+            <name>knoxsso.redirect.whitelist.regex</name>
+            <value>^https?:\/\/.*$</value>
+        </param>
+    </service>
+  </topology>"""
+
+  def __init__(self, name='redirect'):
+    self.name = name
+
+  def deploy(self, knox):
+    print ' Please be aware: Adding a wildcard as the value for knoxsso.redirect.whitelist.regex in %s topology. You can edit this topology file to set a more restrictive value.' % self.name
+    return knox.add_topology(self.name, RedirectTopology.TEMPLATE)
 
 class Knox:
   def __init__(self, base_url, knox_user, knox_group, topology_directory='/etc/knox/conf/topologies'):
@@ -981,7 +1012,11 @@ if __name__ == '__main__':
     sys.exit(1)
 
   knox = Knox(user.url_input('Knox URL that is network accessible from DataPlane', 'knox.url', default=str(ambari.cluster.knox_url())), knox_user=ambari.cluster.knox_user(), knox_group=ambari.cluster.knox_group())
-  for topology in [TokenTopology(dp.public_key()), DpProxyTopology(ambari, dp.dependency_names())]:
+
+  topologies_to_deploy = [TokenTopology(dp.public_key()), DpProxyTopology(ambari, dp.dependency_names())]
+  if 'DATA_ANALYTICS_STUDIO' in dp.dependency_names():
+    topologies_to_deploy.extend([TokenTopology(dp.public_key(), 'redirecttoken', 10000), RedirectTopology('redirect')])
+  for topology in topologies_to_deploy:
     print 'Deploying Knox topology:', topology.name
     topology.deploy(knox)
 
