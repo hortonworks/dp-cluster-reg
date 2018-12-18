@@ -798,7 +798,7 @@ class DpProxyTopology:
     return self.role('ATLAS-API', self.atlas_url(), '0.1.2.0') if 'ATLAS' in self.role_names else ''
 
   def dpprofiler(self):
-    return self.role('DPPROFILER', self.dpprofiler_url()) if 'DPPROFILER' in self.role_names else ''
+    return self.role('PROFILER-AGENT', self.dpprofiler_url()) if 'DPPROFILER' in self.role_names else ''
 
   def beacon(self):
     return self.role('BEACON', self.beacon_url()) if 'BEACON' in self.role_names else ''
