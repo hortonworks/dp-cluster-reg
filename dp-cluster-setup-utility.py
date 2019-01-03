@@ -369,8 +369,7 @@ class Ambari:
     return Cluster(response['Clusters'], self.client.rebased(self.base_url / 'api' / self.api_version / 'clusters' / cluster_name))
 
   def _find_repository_version(self, cluster_name):
-    # Not able to use query_params in the line below because of the '/' in the key name.
-    _, response = self.client.get(Url((Url('clusters') / cluster_name / 'stack_versions').base + '?ClusterStackVersions/state=CURRENT'))
+    _, response = self.client.get((Url('clusters') / cluster_name / 'stack_versions').query_params(**{'ClusterStackVersions/state':'CURRENT'}))
     current_stack_version_id = response['items'][0]['ClusterStackVersions']['id']
     current_stack_repository_version = response['items'][0]['ClusterStackVersions']['repository_version']
     _, response = self.client.get((Url('clusters') / cluster_name / 'stack_versions' / current_stack_version_id / 'repository_versions' / current_stack_repository_version).query_params(fields='RepositoryVersions/repository_version'))
@@ -963,7 +962,7 @@ class Knox:
     service_dir = '%s/profiler-agent/1.0.0' % dest_services_base_dir
     if os.path.isdir(service_dir):
       print 'Service files already exist in %s' % service_dir
-    if not os.path.isdir(service_dir):
+    else:
       os.makedirs(service_dir)
 
     self._create_service_file(service_dir, 'rewrite.xml')
