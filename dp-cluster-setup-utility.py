@@ -28,6 +28,7 @@ import pwd
 import grp
 from contextlib import closing
 from urlparse import urlparse
+from shutil import copyfile
 
 class InputValidator:
   class Any:
@@ -367,6 +368,15 @@ class Ambari:
     _, response = self.client.get((Url('clusters') / cluster_name).query_params(fields='Clusters/security_type,Clusters/version,Clusters/cluster_name'))
     return Cluster(response['Clusters'], self.client.rebased(self.base_url / 'api' / self.api_version / 'clusters' / cluster_name))
 
+  def _find_repository_version(self, cluster_name):
+    _, response = self.client.get((Url('clusters') / cluster_name / 'stack_versions').query_params(**{'ClusterStackVersions/state':'CURRENT'}))
+    current_stack_version_id = response['items'][0]['ClusterStackVersions']['id']
+    current_stack_repository_version = response['items'][0]['ClusterStackVersions']['repository_version']
+    _, response = self.client.get((Url('clusters') / cluster_name / 'stack_versions' / current_stack_version_id / 'repository_versions' / current_stack_repository_version).query_params(fields='RepositoryVersions/repository_version'))
+    current_repo_version = response['RepositoryVersions']['repository_version']
+    print 'Detected current repo version as: %s' % current_repo_version
+    return current_repo_version
+
   def _find_cluster_name(self):
     try:
       _, response = self.client.get('clusters')
@@ -381,6 +391,9 @@ class Ambari:
   def installed_stack(self):
     stack_name, stack_ver = self.cluster.version.split('-')
     return Stack(stack_name, stack_ver, self.client.rebased(self.base_url / 'api' / self.api_version / 'stacks'))
+
+  def current_stack_version(self):
+    return self._find_repository_version(self.cluster.cluster_name)
 
   def enable_trusted_proxy_for_ranger(self):
     if not self.cluster.has_service('RANGER'):
@@ -777,6 +790,7 @@ class DpProxyTopology:
     self.name = name
 
   def deploy(self, knox):
+    self.update_knox_service_defs(knox)
     template = DpProxyTopology.TEMPLATE.format(
       knox_url = str(knox.base_url),
       timestamp = int(time.time()),
@@ -790,6 +804,13 @@ class DpProxyTopology:
       streamsmsgmgr = self.streamsmsgmgr(),
     )
     return knox.add_topology(self.name, template)
+
+  def update_knox_service_defs(self, knox):
+    if 'DPPROFILER' in self.role_names:
+      stack = self.ambari.installed_stack()
+      if stack.name == 'HDP':
+        stack_version = self.ambari.current_stack_version()
+        knox.update_profiler_agent_service_def(stack_version)
 
   def ranger(self):
     return self.role('RANGER', self.ranger_url(), '0.1.0.0') if 'RANGER' in self.role_names else ''
@@ -908,19 +929,47 @@ class Knox:
     self.knox_group = knox_group
     self.topology_directory = self._check_dir(topology_directory)
 
-  def _check_dir(self, topology_directory):
-    if not os.path.isdir(topology_directory):
-      raise RuntimeError('Knox topology directory does not exist: %s' % topology_directory)
-    return topology_directory
+  def _check_dir(self, knox_artifact_directory, artifact_type='topology'):
+    if not os.path.isdir(knox_artifact_directory):
+      raise RuntimeError('Knox %s directory does not exist: %s' % (artifact_type, knox_artifact_directory))
+    return knox_artifact_directory
+
+  def _check_file(self, service_file):
+    if not os.path.isfile(service_file):
+      raise RuntimeError('Knox service file does not exist: %s' % service_file)
+    return service_file
+
+  def _chown_to_knox(self, path_name):
+    os.chown(path_name, pwd.getpwnam(self.knox_user).pw_uid, grp.getgrnam(self.knox_group).gr_gid)
 
   def add_topology(self, topology_name, content):
     target = '%s/%s.xml' % (self.topology_directory, topology_name)
     print 'Saving topology %s' % target
     with open(target, 'w') as f: f.write(content)
     print '  Changing ownership of %s to %s:%s.' % (topology_name, self.knox_user, self.knox_group)
-    os.chown(target, pwd.getpwnam(self.knox_user).pw_uid, grp.getgrnam(self.knox_group).gr_gid)
+    self._chown_to_knox(target)
     print '  Changing permissions of %s to %o.' % (topology_name, 0644)
     os.chmod(target, 0644)
+
+  def _create_service_file(self, service_dir, file_name):
+    dest_file = '%s/%s' % (service_dir, file_name)
+    src_file = self._check_file('%s/services/profiler-agent/1.0.0/%s' % (os.path.dirname(os.path.realpath(__file__)), file_name))
+    copyfile(src_file, dest_file)
+    self._chown_to_knox(dest_file)
+
+  def update_profiler_agent_service_def(self, current_stack_version):
+    dest_services_base_dir = self._check_dir('/var/lib/knox/data-%s/services' % current_stack_version, 'service')
+    service_dir = '%s/profiler-agent/1.0.0' % dest_services_base_dir
+    if os.path.isdir(service_dir):
+      print 'Service files already exist in %s' % service_dir
+    else:
+      os.makedirs(service_dir)
+
+    self._create_service_file(service_dir, 'rewrite.xml')
+    self._create_service_file(service_dir, 'service.xml')
+
+    self._chown_to_knox(service_dir)
+    self._chown_to_knox(os.path.dirname(service_dir))
 
 class AmbariPrerequisites:
   def __init__(self, ambari):
