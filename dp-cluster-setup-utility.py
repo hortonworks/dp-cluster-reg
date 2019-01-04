@@ -316,7 +316,7 @@ class JsonTransformer:
     if 200 <= code <= 299:
       return code, self._parse(data)
     else:
-      return UnexpectedHttpCode('Unexpected HTTP code: %d url: %s response: %s' % (code, url, data))
+      raise UnexpectedHttpCode('Unexpected HTTP code: %d url: %s response: %s' % (code, url, data))
 
   def _parse(self, a_str):
     if not a_str: 
@@ -694,6 +694,19 @@ class DataPlane:
 
   def identity_url(self):
     return self.base_url / 'api' / 'identity'
+
+  def check_ambari(self, knox):
+    print 'Checking communication between DataPlane and cluster...'
+    status_url = Url('api/ambari/status').query_params(url=knox.base_url / 'gateway/dp-proxy/ambari', allowUntrusted='true', behindGateway='true')
+    code, resp = self.client.get(status_url, headers=[Header.content_type('application/json'), self.token_cookies()])
+    if code != 200:
+      raise UnexpectedHttpCode('Unexpected HTTP code: %d url: %s response: %s' % (code, status_url, resp))
+    status = resp['ambariApiStatus']
+    print '  Ambari API status:', status
+    if status != 200:
+      print 'Communication failure. DataPlane response: %s' % resp
+      return False
+    return True
 
 class TokenTopology:
   TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
@@ -1077,6 +1090,9 @@ if __name__ == '__main__':
 
   print 'Cluster changes are complete! Please log into Ambari, confirm the changes made to your cluster as part of this script and restart affected services.'
   user.any_input()
+
+  if not dp.check_ambari(knox):
+    sys.exit(1)
 
   print 'Registering cluster to DataPlane...'
   response = dp.register_ambari(ambari, knox, user)
