@@ -1005,7 +1005,7 @@ class AmbariPrerequisites:
     return True
 
   def stack_supported(self):
-    return self.hdp_supported_version or self.hdf_supported_version
+    return self.hdp_supported_version() or self.hdf_supported_version()
 
   def hdp_supported_version(self):
     stack = self.ambari.installed_stack()
