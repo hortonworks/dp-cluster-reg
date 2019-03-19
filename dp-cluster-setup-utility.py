@@ -991,7 +991,7 @@ class AmbariPrerequisites:
 
   def satisfied(self):
     if not self.stack_supported():
-      print 'The stack version (%s) is not supported. Supported stacks are: HDP-3.1/HDF-3.2 or newer.' % self.ambari.installed_stack()
+      print 'The stack version (%s) is not supported. Supported stacks are: HDP-3.1/HDF-3.3 or newer.' % self.ambari.installed_stack()
       return False
     if not self.security_type_supported():
       print 'Your cluster is not kerberied. Please enable Kerberos using Ambari first.'
@@ -1013,7 +1013,7 @@ class AmbariPrerequisites:
   
   def hdf_supported_version(self):
     stack = self.ambari.installed_stack()
-    return stack.name == 'HDF' and stack.version.startswith('3.2')
+    return stack.name == 'HDF' and stack.version.startswith('3.3')
 
   def security_type_supported(self):
     return self.ambari.cluster.security_type == 'KERBEROS'
