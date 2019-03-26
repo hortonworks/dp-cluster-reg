@@ -838,7 +838,7 @@ class DpProxyTopology:
     return self.role('BEACON', self.beacon_url()) if 'BEACON' in self.role_names else ''
 
   def streamsmsgmgr(self):
-    return self.role('STREAMSMSGMGR', self.streamsmsgmgr_url()) if 'STREAMSMSGMGR' in self.role_names else ''
+    return self.role('SMM', self.streamsmsgmgr_url()) if 'STREAMSMSGMGR' in self.role_names else ''
 
   def role(self, name, url, version=''):
     version_str = ''
