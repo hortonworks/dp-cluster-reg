@@ -428,8 +428,8 @@ class Ambari:
     knox_user = self.cluster.knox_user()
     print 'Setting trusted proxy configurations in beacon-security-site'
     self.cluster.update_config('beacon-security-site', {
-      'trustedProxy.enabled' : 'true',
-      'trustedProxy.topologyName' : 'beacon-proxy',
+      'beacon.trustedProxy.enabled' : 'true',
+      'beacon.trustedProxy.topologyName' : 'beacon-proxy',
       'beacon.proxyuser.%s.hosts' % knox_user: self.cluster.knox_host(),
       'beacon.proxyuser.%s.users' % knox_user: '*',
       'beacon.proxyuser.%s.groups' % knox_user: '*',
