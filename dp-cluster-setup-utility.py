@@ -423,6 +423,18 @@ class Ambari:
       'atlas.proxyuser.%s.groups' % knox_user: '*',
     }, note='updated by dp-cluster-setup-utility')
 
+  def enable_trusted_proxy_for_beacon(self):
+    print 'Enabling Knox Trusted Proxy Support in BEACON...'
+    knox_user = self.cluster.knox_user()
+    print 'Setting trusted proxy configurations in beacon-security-site'
+    self.cluster.update_config('beacon-security-site', {
+      'trustedProxy.enabled' : 'true',
+      'trustedProxy.topologyName' : 'beacon-proxy',
+      'beacon.proxyuser.%s.hosts' % knox_user: self.cluster.knox_host(),
+      'beacon.proxyuser.%s.users' % knox_user: '*',
+      'beacon.proxyuser.%s.groups' % knox_user: '*',
+    }, note='updated by dp-cluster-setup-utility')  
+
   def enable_trusted_proxy_for_ambari(self):
     print 'Enabling Knox Trusted Proxy Support in Ambari...'
     knox_user = self.cluster.knox_user()
@@ -511,6 +523,9 @@ class Cluster:
 
   def knox_group(self):
     return self.config_property('knox-env', 'knox_group', default='knox')
+  
+  def cluster_realm(self):
+    return self.config_property('kerberos-env', 'realm')
 
   def __str__(self):
     return '%s cluster' % self.cluster_name
@@ -596,7 +611,7 @@ class DataPlane:
     self.client = RestClient.forJsonApi(self.base_url, credentials)
     self.available_apps = [
       DpApp('Data Steward Studio (DSS)', 'dss', dependencies=[KNOX, RANGER, DPPROFILER, ATLAS]),
-      DpApp('Data Lifecycle Manager (DLM)', 'dlm', dependencies=[KNOX, RANGER, BEACON, HIVE, HDFS]),
+      DpApp('Data Lifecycle Manager (DLM)', 'dlm', dependencies=[KNOX, RANGER, BEACON, HIVE, HDFS, ATLAS]),
       DpApp('Streams Messaging Manager (SMM)', 'smm', dependencies=[KNOX, RANGER, STREAMSMSGMGR, KAFKA, ZOOKEEPER]),
       DpApp('Data Analytics Studio (DAS)', 'das', dependencies=[KNOX, RANGER, DATA_ANALYTICS_STUDIO, HIVE])
     ]
@@ -762,68 +777,10 @@ class TokenTopology:
     )
     return knox.add_topology(self.name, template)
 
-class DpProxyTopology:
-  TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
-  <topology>
-     <uri>{knox_url}/gateway/dp-proxy</uri>
-     <name>dp-proxy</name>
-     <timestamp>{timestamp}</timestamp>
-     <generated>false</generated>
-     <gateway>
-        <provider>
-           <role>federation</role>
-           <name>SSOCookieProvider</name>
-           <enabled>true</enabled>
-           <param>
-              <name>sso.authentication.provider.url</name>
-              <value>{knox_url}/gateway/knoxsso/api/v1/websso</value>
-           </param>
-        </provider>
-        <provider>
-           <role>identity-assertion</role>
-           <name>Default</name>
-           <enabled>true</enabled>
-        </provider>
-     </gateway>
-     <service>
-        <role>AMBARI</role>
-        <version>0.2.2.0</version>
-        <url>{ambari_protocol}://{ambari_host}:{ambari_port}</url>
-     </service>
-     {ranger}
-     {atlas_api}
-     {dpprofiler}
-     {beacon}
-     {streamsmsgmgr}
-  </topology>"""
-
-  def __init__(self, ambari, role_names, name='dp-proxy'):
+class TopologyUtil:
+  def __init__(self, ambari, role_names):
     self.ambari = ambari
     self.role_names = role_names
-    self.name = name
-
-  def deploy(self, knox):
-    self.update_knox_service_defs(knox)
-    template = DpProxyTopology.TEMPLATE.format(
-      knox_url = str(knox.base_url),
-      timestamp = int(time.time()),
-      ambari_protocol = self.ambari.base_url.protocol(),
-      ambari_host = self.ambari.internal_host,
-      ambari_port = self.ambari.base_url.port(),
-      ranger = self.ranger(),
-      atlas_api = self.atlas_api(),
-      dpprofiler = self.dpprofiler(),
-      beacon = self.beacon(),
-      streamsmsgmgr = self.streamsmsgmgr(),
-    )
-    return knox.add_topology(self.name, template)
-
-  def update_knox_service_defs(self, knox):
-    if 'DPPROFILER' in self.role_names:
-      stack = self.ambari.installed_stack()
-      if stack.name == 'HDP':
-        stack_version = self.ambari.current_stack_version()
-        knox.update_profiler_agent_service_def(stack_version)
 
   def ranger(self):
     return self.role('RANGER', self.ranger_url(), '0.1.0.0') if 'RANGER' in self.role_names else ''
@@ -894,6 +851,154 @@ class DpProxyTopology:
 
   def host_name(self, service_name, component_name):
     return self.ambari.cluster.service(service_name).component(component_name).host_names()[0]
+
+
+class DpProxyTopology:
+  TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
+  <topology>
+     <uri>{knox_url}/gateway/dp-proxy</uri>
+     <name>dp-proxy</name>
+     <timestamp>{timestamp}</timestamp>
+     <generated>false</generated>
+     <gateway>
+        <provider>
+           <role>federation</role>
+           <name>SSOCookieProvider</name>
+           <enabled>true</enabled>
+           <param>
+              <name>sso.authentication.provider.url</name>
+              <value>{knox_url}/gateway/knoxsso/api/v1/websso</value>
+           </param>
+        </provider>
+        <provider>
+           <role>identity-assertion</role>
+           <name>Default</name>
+           <enabled>true</enabled>
+        </provider>
+     </gateway>
+     <service>
+        <role>AMBARI</role>
+        <version>0.2.2.0</version>
+        <url>{ambari_protocol}://{ambari_host}:{ambari_port}</url>
+     </service>
+     {ranger}
+     {atlas_api}
+     {dpprofiler}
+     {beacon}
+     {streamsmsgmgr}
+  </topology>"""
+
+  def __init__(self, ambari, role_names, topology_util, name='dp-proxy'):
+    self.ambari = ambari
+    self.role_names = role_names
+    self.name = name
+    self.topology_util = topology_util
+
+  def deploy(self, knox):
+    self.update_knox_service_defs(knox)
+    template = DpProxyTopology.TEMPLATE.format(
+      knox_url = str(knox.base_url),
+      timestamp = int(time.time()),
+      ambari_protocol = self.ambari.base_url.protocol(),
+      ambari_host = self.ambari.internal_host,
+      ambari_port = self.ambari.base_url.port(),
+      ranger = self.topology_util.ranger(),
+      atlas_api = self.topology_util.atlas_api(),
+      dpprofiler = self.topology_util.dpprofiler(),
+      beacon = self.topology_util.beacon(),
+      streamsmsgmgr = self.topology_util.streamsmsgmgr(),
+    )
+    return knox.add_topology(self.name, template)
+
+  def update_knox_service_defs(self, knox):
+    if 'DPPROFILER' in self.role_names:
+      stack = self.ambari.installed_stack()
+      if stack.name == 'HDP':
+        stack_version = self.ambari.current_stack_version()
+        knox.update_profiler_agent_service_def(stack_version)
+
+
+class BeaconProxyTopology:
+  TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
+  <topology>
+     <uri>{knox_url}/gateway/beacon-proxy</uri>
+     <name>beacon-proxy</name>
+     <timestamp>{timestamp}</timestamp>
+     <generated>false</generated>
+     <gateway>
+        <provider>
+          <role>authentication</role>
+          <name>HadoopAuth</name>
+          <enabled>true</enabled>
+          <param>
+            <name>config.prefix</name>
+            <value>hadoop.auth.config</value>
+          </param>
+          <param>
+            <name>hadoop.auth.config.signature.secret</name>
+            <value>knox-signature-secret</value>
+          </param>
+          <param>
+            <name>hadoop.auth.config.type</name>
+            <value>kerberos</value>
+          </param>
+          <param>
+            <name>hadoop.auth.config.simple.anonymous.allowed</name>
+            <value>false</value>
+          </param>
+          <param>
+            <name>hadoop.auth.config.token.validity</name>
+            <value>1800</value>
+          </param>
+          <param>
+            <name>hadoop.auth.config.cookie.domain</name>
+            <value>{realm}</value>
+          </param>
+          <param>
+            <name>hadoop.auth.config.cookie.path</name>
+            <value>gateway/beacon-proxy</value>
+          </param>
+          <param>
+            <name>hadoop.auth.config.kerberos.principal</name>
+            <value>HTTP/{knox_host}@{realm}</value>
+          </param>
+          <param>
+            <name>hadoop.auth.config.kerberos.keytab</name>
+            <value>/etc/security/keytabs/spnego.service.keytab</value>
+          </param>
+          <param>
+            <name>hadoop.auth.config.kerberos.name.rules</name>
+            <value>DEFAULT</value>
+          </param>
+        </provider>
+	    <provider>
+            <role>identity-assertion</role>
+            <name>Default</name>
+            <enabled>true</enabled>
+        </provider>
+     </gateway>
+     {ranger}
+     {atlas_api}
+     {beacon}
+  </topology>"""
+
+  def __init__(self, ambari, role_names, topology_util, name='beacon-proxy'):
+    self.ambari = ambari
+    self.role_names = role_names
+    self.name = name
+    self.topology_util = topology_util
+
+  def deploy(self, knox):
+    template = BeaconProxyTopology.TEMPLATE.format(
+      knox_url = str(knox.base_url),
+      knox_host = self.ambari.cluster.knox_host(),
+      realm = self.ambari.cluster.cluster_realm(),
+      timestamp = int(time.time()),
+      ranger = self.topology_util.ranger(),
+      atlas_api = self.topology_util.atlas_api(),
+      beacon = self.topology_util.beacon(),
+    )
+    return knox.add_topology(self.name, template)
 
 class RedirectTopology:
   TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
@@ -1080,9 +1185,15 @@ if __name__ == '__main__':
   if dp.check_dependencies(ambari.cluster, user):
     sys.exit(1)
 
+  topology_util = TopologyUtil(ambari, dp.dependency_names())
+
   knox = Knox(user.url_input('Knox URL that is network accessible from DataPlane', 'knox.url', default=str(ambari.cluster.knox_url())), knox_user=ambari.cluster.knox_user(), knox_group=ambari.cluster.knox_group())
 
-  topologies_to_deploy = [TokenTopology(dp.public_key()), DpProxyTopology(ambari, dp.dependency_names())]
+  topologies_to_deploy = [TokenTopology(dp.public_key()), DpProxyTopology(ambari, dp.dependency_names(), topology_util)]
+
+  if 'BEACON' in dp.dependency_names():
+      topologies_to_deploy.extend([BeaconProxyTopology(ambari, dp.dependency_names(), topology_util)])
+
   if 'DATA_ANALYTICS_STUDIO' in dp.dependency_names():
     topologies_to_deploy.extend([TokenTopology(dp.public_key(), 'redirecttoken', 10000), RedirectTopology('redirect')])
   for topology in topologies_to_deploy:
@@ -1093,6 +1204,8 @@ if __name__ == '__main__':
     ambari.enable_trusted_proxy_for_ranger()
   if 'ATLAS' in dp.dependency_names():
     ambari.enable_trusted_proxy_for_atlas()
+  if 'BEACON' in dp.dependency_names():
+    ambari.enable_trusted_proxy_for_beacon()
   ambari.enable_trusted_proxy_for_ambari()
 
   print 'Cluster changes are complete! Please log into Ambari, confirm the changes made to your cluster as part of this script and restart affected services.'
