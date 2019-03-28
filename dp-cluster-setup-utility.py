@@ -586,10 +586,11 @@ class Dependency:
   def __hash__(self): return hash(self.service_name)
 
 class DpApp:
-  def __init__(self, name, id, dependencies=[]):
+  def __init__(self, name, id, dependencies=[], optional_dependencies=[]):
     self.name = name
     self.id = id
     self.dependencies = list(dependencies)
+    self.optional_dependencies = list(optional_dependencies)
     self.selected = False
 
 KNOX = Dependency('KNOX', 'Knox')
@@ -611,7 +612,7 @@ class DataPlane:
     self.client = RestClient.forJsonApi(self.base_url, credentials)
     self.available_apps = [
       DpApp('Data Steward Studio (DSS)', 'dss', dependencies=[KNOX, RANGER, DPPROFILER, ATLAS]),
-      DpApp('Data Lifecycle Manager (DLM)', 'dlm', dependencies=[KNOX, RANGER, BEACON, HIVE, HDFS, ATLAS]),
+      DpApp('Data Lifecycle Manager (DLM)', 'dlm', dependencies=[KNOX, RANGER, BEACON, HIVE, HDFS], optional_dependencies=[ATLAS]),
       DpApp('Streams Messaging Manager (SMM)', 'smm', dependencies=[KNOX, RANGER, STREAMSMSGMGR, KAFKA, ZOOKEEPER]),
       DpApp('Data Analytics Studio (DAS)', 'das', dependencies=[KNOX, RANGER, DATA_ANALYTICS_STUDIO, HIVE])
     ]
@@ -656,6 +657,15 @@ class DataPlane:
 
   def dependency_names(self):
     return map(lambda each: each.service_name, self.dependencies())
+
+  def optional_dependencies(self):
+    optional_dependencies = set()
+    for each in self.selected_apps():
+      optional_dependencies.update(each.optional_dependencies)
+    return optional_dependencies
+
+  def optional_dependency_names(self):
+      return map(lambda each: each.service_name, self.optional_dependencies())
 
   def public_key(self):
     _, key = self.client.get('public-key', response_transformer=lambda url, code, data: (code, data))
@@ -1200,11 +1210,11 @@ if __name__ == '__main__':
     print 'Deploying Knox topology:', topology.name
     topology.deploy(knox)
 
-  if 'RANGER' in dp.dependency_names():
+  if 'RANGER' in dp.dependency_names() or dp.optional_dependency_names():
     ambari.enable_trusted_proxy_for_ranger()
-  if 'ATLAS' in dp.dependency_names():
+  if 'ATLAS' in dp.dependency_names() or dp.optional_dependency_names():
     ambari.enable_trusted_proxy_for_atlas()
-  if 'BEACON' in dp.dependency_names():
+  if 'BEACON' in dp.dependency_names() or dp.optional_dependency_names():
     ambari.enable_trusted_proxy_for_beacon()
   ambari.enable_trusted_proxy_for_ambari()
 
