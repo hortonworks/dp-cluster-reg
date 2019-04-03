@@ -433,11 +433,30 @@ class Ambari:
       'beacon.proxyuser.%s.hosts' % knox_user: self.cluster.knox_host(),
       'beacon.proxyuser.%s.users' % knox_user: '*',
       'beacon.proxyuser.%s.groups' % knox_user: '*',
-    }, note='updated by dp-cluster-setup-utility')  
+    }, note='updated by dp-cluster-setup-utility')
+
+
+  def enable_trusted_proxy_for_ambari_2_6(self):
+    print 'Enabling Knox Trusted Proxy Support in Ambari 2.6 '
+    ambari_host = self.internal_host
+    knox_user = self.cluster.knox_user()
+    knox_host = self.cluster.knox_host()
+    if ambari_host != knox_host :
+      print "Warning: Ambari host and Knox host are not same." \
+            "Please run the ambari-server setup-trusted-proxy in Ambari host as a prerequisite. " \
+            "Use knox as local proxy username, knox host in allowed hosts and default values for others."
+    else :
+      print "Ambari host and Knox host are same. So running ambari-server setup-trusted-proxy."
+      setup_trusted_proxy_command = "printf '\n%s\n%s\n*\n*\n\n' | ambari-server setup-trusted-proxy" %(knox_user, knox_host)
+      os.system(setup_trusted_proxy_command)
 
   def enable_trusted_proxy_for_ambari(self):
-    print 'Enabling Knox Trusted Proxy Support in Ambari...'
     knox_user = self.cluster.knox_user()
+    stack = self.installed_stack()
+    if (stack.version.startswith('2.6')) :
+      self.enable_trusted_proxy_for_ambari_2_6()
+      return
+    print 'Enabling Knox Trusted Proxy Support in Ambari 3.1 '
     print '  Please be aware: Adding ambari.tproxy.proxyuser.%s.users=* to tproxy-configuration' % knox_user
     print '  Please be aware: Adding ambari.tproxy.proxyuser.%s.users=* to tproxy-configuration' % knox_user
     _, response = self.client.post('services/AMBARI/components/AMBARI_SERVER/configurations', {
@@ -461,6 +480,16 @@ class Ambari:
              .get('RootServiceComponents', {}) \
              .get('properties', {}) \
              .get('authentication.kerberos.enabled', 'false').lower()
+
+
+  def trusted_proxy_enabled(self):
+    _, response = self.client.get(Url('services/AMBARI/components/AMBARI_SERVER').query_params(
+      fields='RootServiceComponents/properties/ambari.tproxy.authentication.enabled'
+    ))
+    return 'true' == response \
+    .get('RootServiceComponents', {}) \
+    .get('properties', {}) \
+    .get('ambari.tproxy.authentication.enabled', 'false').lower()
 
 class Cluster:
   def __init__(self, cluster, client):
@@ -1106,13 +1135,16 @@ class AmbariPrerequisites:
 
   def satisfied(self):
     if not self.stack_supported():
-      print 'The stack version (%s) is not supported. Supported stacks are: HDP-3.1/HDF-3.3 or newer.' % self.ambari.installed_stack()
+      print 'The stack version (%s) is not supported. Supported stacks are: HDP-2.6/HDP-3.1/HDF-3.3 or newer.' % self.ambari.installed_stack()
       return False
     if not self.security_type_supported():
       print 'Your cluster is not kerberied. Please enable Kerberos using Ambari first.'
       return False
     if not ambari.kerberos_enabled():
       print 'Kerberos is not enabled for Ambari. Please enable it by running: ambari-server setup-kerberos from your Ambari Server host.'
+      return False
+    if not ambari.trusted_proxy_enabled():
+      print 'Trusted Proxy is not enabled for Ambari. Please enable it by running: ambari-server setup-trusted-proxy from your Ambari Server host.'
       return False
     if not self.running_on_knox_host():
       print 'This script should be executed on the same host where Knox gateway is running (%s).' % self.knox_host
@@ -1124,7 +1156,7 @@ class AmbariPrerequisites:
 
   def hdp_supported_version(self):
     stack = self.ambari.installed_stack()
-    return stack.name == 'HDP' and stack.version.startswith('3.1')
+    return stack.name == 'HDP' and ( stack.version.startswith('3.1') or stack.version.startswith('2.6') )
   
   def hdf_supported_version(self):
     stack = self.ambari.installed_stack()
@@ -1189,6 +1221,7 @@ if __name__ == '__main__':
 
   print "\nTell me about this cluster's Ambari Instance"
   ambari = Ambari(user.url_input('Ambari URL', 'ambari.url'), user.credential_input('Ambari admin', 'ambari.admin'))
+  ambari.enable_trusted_proxy_for_ambari()
 
   if not AmbariPrerequisites(ambari).satisfied():
     sys.exit(1)
@@ -1216,7 +1249,6 @@ if __name__ == '__main__':
     ambari.enable_trusted_proxy_for_atlas()
   if 'BEACON' in dp.dependency_names() or dp.optional_dependency_names():
     ambari.enable_trusted_proxy_for_beacon()
-  ambari.enable_trusted_proxy_for_ambari()
 
   print 'Cluster changes are complete! Please log into Ambari, confirm the changes made to your cluster as part of this script and restart affected services.'
   user.any_input()
