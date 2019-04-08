@@ -614,13 +614,6 @@ class ClouderaManager(BaseClusterManager):
     pass
 
   def kerberos_enabled(self):
-    # try:
-    #     kerb = self.client.cluster_api_instance().get_kerberos_info(self.cluster.cluster_name)
-    #     if kerb.kerberized :
-    #       return True
-    #     return False
-    # except ApiException as e:
-    #   raise ApiException
     pass
 
   
@@ -921,7 +914,6 @@ class DataPlane:
   #
 
   def register_ambari(self, ambari, knox, user):
-    pp.pprint(self.registration_request(ambari, knox, user))
     _, resp = self.client.post(
       'api/lakes',
       data=self.registration_request(ambari, knox, user),
@@ -1601,8 +1593,7 @@ class FlowManager(object):
     print('Registering cluster to DataPlane...')
 
     #response = dp.register_ambari(ambari, knox, user)
-    response = self.flow_manager.register_cluster_with_dp(dp,cluster_instance,user)
-    pp.pprint(response)
+    response = self.flow_manager.register_cluster_with_dp(dp,cluster_instance,knox,user)
     #response = dp.register_ambari_basic(cluster_instance, user)
     print('Cluster is registered with id', response['id'])
 
@@ -1638,7 +1629,7 @@ class BaseOperationsManager(object):
     pass
   
   @staticmethod
-  def register_cluster_with_dp(dp, cluster_instance,user):
+  def register_cluster_with_dp(dp, cluster_instance,knox,user):
     pass
 """
   AmbariOperationsManager : control Operation for ambari based clusters
@@ -1680,8 +1671,8 @@ class AmbariOperationsManager(BaseOperationsManager):
     return dp.check_ambari(knox)
   
   @staticmethod
-  def register_cluster_with_dp(dp, ambari, user):
-    return dp.register_ambari(ambari, user)
+  def register_cluster_with_dp(dp, ambari, knox, user):
+    return dp.register_ambari(ambari, knox, user)
 
 """
   CMOperationsManager : control Operation for Clouder Manager based clusters
@@ -1717,7 +1708,7 @@ class CMOperationsManager(BaseOperationsManager):
     return dp.check_cm(knox)
 
   @staticmethod
-  def register_cluster_with_dp(dp, cm, user):
+  def register_cluster_with_dp(dp, cm, knox, user):
     return dp.register_cm(cm, user)
   
 """
