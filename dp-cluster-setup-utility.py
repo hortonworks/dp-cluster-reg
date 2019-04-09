@@ -1418,7 +1418,7 @@ class AmbariPrerequisites:
     if not self.security_type_supported():
       print 'Your cluster is not kerberied. Please enable Kerberos using Ambari first.'
       return False
-    if not ambari.kerberos_enabled():
+    if not self.ambari.kerberos_enabled():
       print 'Kerberos is not enabled for Ambari. Please enable it by running: ambari-server setup-kerberos from your Ambari Server host.'
       return False
     if ambari.installed_stack().version.startswith('2.6') and not ambari.trusted_proxy_enabled():
