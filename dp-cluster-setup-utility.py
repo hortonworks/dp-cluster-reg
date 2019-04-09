@@ -395,6 +395,12 @@ class Ambari:
   def current_stack_version(self):
     return self._find_repository_version(self.cluster.cluster_name)
 
+  def cluster_has_service(self, name):
+    if not self.cluster.has_service(name):
+      return False
+    else:
+      return True
+
   def enable_trusted_proxy_for_ranger(self):
     if not self.cluster.has_service('RANGER'):
       return
@@ -1228,7 +1234,15 @@ if __name__ == '__main__':
   if dp.check_dependencies(ambari.cluster, user):
     sys.exit(1)
 
-  topology_util = TopologyUtil(ambari, dp.dependency_names())
+  merged_dependencies = dp.dependencies()
+  for each in dp.optional_dependencies():
+    if ambari.cluster_has_service(each.service_name):
+      merged_dependencies.add(each)
+
+  role_names = map(lambda each: each.service_name, merged_dependencies)
+
+
+  topology_util = TopologyUtil(ambari, role_names)
 
   knox = Knox(user.url_input('Knox URL that is network accessible from DataPlane', 'knox.url', default=str(ambari.cluster.knox_url())), knox_user=ambari.cluster.knox_user(), knox_group=ambari.cluster.knox_group())
 
