@@ -1250,6 +1250,8 @@ if __name__ == '__main__':
   if 'BEACON' in dp.dependency_names() or dp.optional_dependency_names():
     ambari.enable_trusted_proxy_for_beacon()
 
+  print 'Waiting for knox topologies to get activated. Sleeping for 10 seconds...'
+  time.sleep(10)
   print 'Cluster changes are complete! Please log into Ambari, confirm the changes made to your cluster as part of this script and restart affected services.'
   user.any_input()
 
