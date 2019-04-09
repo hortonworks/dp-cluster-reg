@@ -387,11 +387,12 @@ class ServiceComponent:
 class CMServiceComponent:
   def __init__(self, client, a_dict):
     self.client = client
-    self.name = a_dict['ServiceComponentInfo']['component_name']
+    self.type = a_dict.type
+    self.name = a_dict.name
     self.component = a_dict
 
   def host_names(self):
-    return [each['HostRoles']['host_name'] for each in self.component['host_components']]
+    return [each.hostname for each in self.component.host_ref]
 
   def __str__(self):
     return self.name
@@ -412,19 +413,27 @@ class Service:
 
   def __str__(self):
     return self.name
+
 class CMService:
-  def __init__(self, client, a_dict):
+  def __init__(self, client, a_dict, cluster_name):
     self.client = client
     self.service = a_dict
+    self.cluster_name = cluster_name
     self.name = self.service.name
     self.type = self.service.type
+    self.display_name = self.service.display_name
 
   def components(self):
-    return [ServiceComponent(self.client, self.client.get(each['href'])[1]) for each in self.service['components']]
+    roles = self.client.role_resource_instance().read_roles(self.cluster_name, self.name,filter="filter",view='summary')
+    return [CMServiceComponent(self.client, role) for role in roles.items]
 
   def component(self, component_name):
     matches = [each for each in self.components() if each.name == component_name]
     return matches[0] if matches else None
+
+  def component_type(self, component_type):
+    matches = [each for each in self.components() if each.type == component_type]
+    return matches
 
   def __str__(self):
     return self.name
@@ -727,7 +736,7 @@ class CMCluster:
   def services(self):
     try:
       response = self.client.services_api_instance().read_services(self.cluster_name, view='summary')
-      return [CMService(self.client, data) for data in response.items]
+      return [CMService(self.client, data, self.cluster_name) for data in response.items]
     except ApiException as e:
       raise e
 
@@ -1599,7 +1608,8 @@ class FlowManager(object):
 
     print('Registering cluster to DataPlane...')
     response = self.flow_manager.register_cluster_with_dp(dp,cluster_instance,knox,user)
-    print('Cluster is registered with id', response['id'])
+    for installed_cluster in  response:
+      print('Cluster : %s is registered with id : %s '% (installed_cluster.get('name'), installed_cluster.get('id')))
 
     print('Success! You are all set, your cluster is registered and ready to use.')
 
