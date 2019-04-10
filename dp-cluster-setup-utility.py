@@ -52,7 +52,7 @@ class InputValidator:
   class YesNo(Options):
     def __init__(self): InputValidator.Options.__init__(self, ('y', 'n'))
   class ClusterType(Options):
-    def __init__(self): InputValidator.Options.__init__(self, ('HDP', 'CDH'))  
+    def __init__(self): InputValidator.Options.__init__(self, ('cm', 'ambari'))  
   class Url:
     def valid(self, input):
       if not (input.startswith('http://') or input.startswith('https://')):
@@ -91,7 +91,7 @@ class User:
       self.input('%s password' % name, id, sensitive=True, default=default_password))
   def cluster_type_input(self, name, id, default_cluster_type=None):
     return ClusterType(
-      self.input('%s cluster_type' % name, id, validator=InputValidator.ClusterType(), default=default_cluster_type))
+      self.input('%s [cm/ambari]' % name, id, validator=InputValidator.ClusterType(), default=default_cluster_type))
   def any_input(self, prompt='Press enter to continue'):
     return self.input(prompt, 'any', validator=InputValidator.Any())
 
@@ -861,6 +861,7 @@ class DataPlane:
     self.client = RestClient.forJsonApi(self.base_url, credentials)
     self.available_apps = self._get_available_apps(cluster_provider)
     self.cluster_provider = cluster_provider
+    self.version = self._version()
   
   def _get_available_apps(self,cluster_provider):
     if cluster_provider == 'CM':
@@ -873,6 +874,14 @@ class DataPlane:
       DpApp('Streams Messaging Manager (SMM)', 'smm', dependencies=[KNOX, RANGER, STREAMSMSGMGR, KAFKA, ZOOKEEPER]),
       DpApp('Data Analytics Studio (DAS)', 'das', dependencies=[KNOX, RANGER, DATA_ANALYTICS_STUDIO, HIVE])
     ]
+
+  def _version(self):
+    version_url = self.base_url / 'api' / 'about'
+    code, resp = self.client.get(version_url, headers=[Header.content_type('application/json'), self.token_cookies()])
+    if code != 200:
+      raise UnexpectedHttpCode('Unexpected HTTP code: %d url: %s response: %s' % (code, status_url, resp))
+    version = resp['version']
+    return version
 
   def check_dependencies(self, cluster, user):
     print '\nWhich DataPlane applications do you want to use with this cluster?'
@@ -1421,7 +1430,7 @@ class AmbariPrerequisites:
     if not self.ambari.kerberos_enabled():
       print 'Kerberos is not enabled for Ambari. Please enable it by running: ambari-server setup-kerberos from your Ambari Server host.'
       return False
-    if ambari.installed_stack().version.startswith('2.6') and not ambari.trusted_proxy_enabled():
+    if self.ambari.installed_stack().version.startswith('2.6') and not ambari.trusted_proxy_enabled():
       print 'Trusted Proxy is not enabled for Ambari. Please enable it by running: ambari-server setup-trusted-proxy from your Ambari Server host.'
       return False
     if not self.running_on_knox_host():
@@ -1549,10 +1558,10 @@ class FlowManager(object):
     self.provider = None
 
   def initialize_flow(self):
-    if self.cluster_type.name == 'HDP':
+    if self.cluster_type.name == 'ambari':
       self.flow_manager = AmbariOperationsManager()
       self.provider = 'AMBARI'
-    if self.cluster_type.name == 'CDH':
+    if self.cluster_type.name == 'cm':
       self.flow_manager = CMOperationsManager()
       self.provider = 'CM'
   
@@ -1738,7 +1747,7 @@ if __name__ == '__main__':
     sys.exit(1)
   # Get the cluster type and execute the flow
   print('Tell me about your Cluster type')
-  flow_manager = FlowManager(user.cluster_type_input('Cluster Type [HDP/CDH]','cluster.type'))
+  flow_manager = FlowManager(user.cluster_type_input('Cluster Type ','cluster.type'))
   flow_manager.initialize_flow()
   exit_code = flow_manager.execute_flow()
   sys.exit(exit_code)
