@@ -943,20 +943,29 @@ class DataPlane:
     return key
 
   def register_ambari(self, ambari, knox, user):
+    request_data = None
+    if self.version.startswith("1.3"):
+      request_data = self.registration_request_dp_1_3_and_above(ambari,knox,user)
+    else:
+      request_data = self.registration_request_dp_1_2_x_and_below(ambari, knox, user)
     _, resp = self.client.post(
       'api/lakes',
-      data=self.registration_request(ambari, knox, user),
+      data=request_data,
       headers=[Header.content_type('application/json'), self.token_cookies()]
     )
-    return resp
+    if self.version.startswith("1.3"):
+      return resp
+    return [resp]
+  
   def register_cm(self, cm, user):
     _, resp = self.client.post(
       'api/lakes',
-      data=self.registration_request_basic(cm, user),
+      data=self.registration_request_cm(cm, user),
       headers=[Header.content_type('application/json'), self.token_cookies()]
     )
     return resp
-  def registration_request(self, ambari, knox, user):
+  
+  def registration_request_dp_1_2_x_and_below(self, ambari, knox, user):
     ambari_url_via_knox = str(knox.base_url / 'gateway' / 'dp-proxy' / 'ambari')
     knox_url = str(knox.base_url / 'gateway')
     return {
@@ -975,7 +984,31 @@ class DataPlane:
       'clusterType': ambari.cluster.type,
       'properties': {'tags': []}
     }
-  def registration_request_basic(self, cm, user):
+  
+  def registration_request_dp_1_3_and_above(self,ambari, knox, user):
+    ambari_url_via_knox = str(knox.base_url / 'gateway' / 'dp-proxy' / 'ambari')
+    knox_url = str(knox.base_url / 'gateway')
+    return [{
+      'dcName': user.input('Data Center Name', 'reg.dc.name'),
+      'managerUri':ambari_url_via_knox,
+      'ambariUrl': ambari_url_via_knox,
+      'ambariIpAddress': ambari.base_url.ip_address(),
+      'location': 6789,
+      'isDatalake': self.has_selected_app('Data Steward Studio (DSS)'),
+      'name': ambari.cluster.cluster_name,
+      'description': user.input('Cluster Descriptions', 'reg.description'),
+      'state': 'TO_SYNC',
+      'managerAddress': ambari.base_url.ip_address(),
+      'allowUntrusted': True,
+      'behindGateway': True,
+      'knoxEnabled': True,
+      'knoxUrl': knox_url,
+      'managerType': "ambari",
+      'clusterType': ambari.cluster.type,
+      'properties': {'tags': []}
+    }]
+
+  def registration_request_cm(self, cm, user):
     return [{
       'dcName': user.input('Data Center Name', 'reg.dc.name'),
       'managerUri':str(cm.base_url),
@@ -1009,7 +1042,12 @@ class DataPlane:
   def identity_url(self):
     return self.base_url / 'api' / 'identity'
 
-  def check_ambari(self, knox):
+  def check_ambari(self,knox):
+    if self.version.startswith("1.3"):
+      return self._check_ambari_for_dp_1_3_and_above(knox)
+    return self._check_ambari_for_dp_1_2_x_and_below(knox)
+  
+  def _check_ambari_for_dp_1_2_x_and_below(self, knox):
     print 'Checking communication between DataPlane and cluster...'
     status_url = Url('api/ambari/status').query_params(url=knox.base_url / 'gateway/dp-proxy/ambari', allowUntrusted='true', behindGateway='true')
     code, resp = self.client.get(status_url, headers=[Header.content_type('application/json'), self.token_cookies()])
@@ -1021,6 +1059,27 @@ class DataPlane:
       print 'Communication failure. DataPlane response: %s' % resp
       return False
     return True
+  
+  def _check_ambari_for_dp_1_3_and_above(self, knox):
+    print 'Checking communication between DataPlane and cluster...'
+    code, resp = self.client.post(
+      'api/cluster-managers?action=check',
+      data={
+	        'managerType': 'ambari',
+        	'managerUri': str(knox.base_url / 'gateway/dp-proxy/ambari'),
+	        'allowUntrusted': True,
+	        'withSingleSignOn': False,
+	        'behindGateway': True
+      },
+      headers=[Header.content_type('application/json'), self.token_cookies()]
+    )
+    if code != 200:
+      raise UnexpectedHttpCode('Unexpected HTTP code: %d url: %s response: %s' % (code, status_url, resp))
+    pp.pprint(resp)
+    if len(resp) > 0:
+      return True
+    return False
+
   def check_cm(self, knox):
     return True
 class TokenTopology:
