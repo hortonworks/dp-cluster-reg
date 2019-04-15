@@ -603,7 +603,7 @@ class Ambari(BaseClusterManager):
 
 class ClouderaManager(BaseClusterManager):
   """ Base class for  cluster """
-  def __init__(self, base_url, credentials=Credentials('admin', 'admin'), api_version='v31'):
+  def __init__(self, base_url, credentials=Credentials('admin', 'admin'), api_version='v19'):
     self.base_url = base_url
     self.client = CMRestClient(base_url / 'api' / api_version, credentials)
     self.api_version = api_version
@@ -623,7 +623,7 @@ class ClouderaManager(BaseClusterManager):
 
   def _find_cluster(self):
     try:
-      response = self.client.cluster_api_instance().read_clusters(view='summary')
+      response = self.client.cluster_api_instance().read_clusters(view='full')
       return response.items[0]
     except ApiException as e:
       raise NoClusterFound(e)
@@ -1547,7 +1547,7 @@ class CMPrerequisites:
 
   def satisfied(self):
     if not self.stack_supported():
-      print('The stack version (%s) is not supported. Supported stacks are: CDH-6.0 or newer.' % self.cm.installed_stack())
+      print('The stack version (%s) is not supported. Supported stacks are: CDH-5.17/CDH-6.0 or newer.' % self.cm.installed_stack())
       return False
     if not self.security_type_supported():
       print('Your cluster is not kerberied. Please enable Kerberos using Ambari first.')
@@ -1565,7 +1565,7 @@ class CMPrerequisites:
 
   def stack_supported(self):
     stack = self.cm.installed_stack()
-    return stack.name == 'CDH' and stack.version.startswith('6')
+    return stack.name == 'CDH' and ( stack.version.startswith('6') or stack.version.startswith('5.15'))
 
   def security_type_supported(self):
     return self.cm.cluster.security_type == 'KERBEROS'
