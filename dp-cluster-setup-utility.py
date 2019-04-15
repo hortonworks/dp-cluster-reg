@@ -968,6 +968,7 @@ class DataPlane:
   def register_cm(self, cm, user):
     if not self.version.startswith("1.3"):
       print("Registering CM Based cluster is not supported in DP %s" % self.version)
+      return []
     _, resp = self.client.post(
       'api/lakes',
       data=self.registration_request_cm(cm, user),
@@ -1691,7 +1692,8 @@ class FlowManager(object):
     for installed_cluster in  response:
       print('Cluster : %s is registered with id : %s '% (installed_cluster.get('name'), installed_cluster.get('id')))
 
-    print('Success! You are all set, your cluster is registered and ready to use.')
+    if response:
+      print('Success! You are all set, your cluster is registered and ready to use.')
 
 """
   BaseOperationsManager : 
