@@ -1547,25 +1547,26 @@ class CMPrerequisites:
 
   def satisfied(self):
     if not self.stack_supported():
-      print('The stack version (%s) is not supported. Supported stacks are: CDH-5.17/CDH-6.0 or newer.' % self.cm.installed_stack())
+      print('The stack version (%s) is not supported. Supported stacks are: CDH-5.17/CDH-6.3 or newer.' % self.cm.installed_stack())
       return False
     if not self.security_type_supported():
-      print('Your cluster is not kerberied. Please enable Kerberos using Ambari first.')
-      print('[WARNING] Installation will proceed')
+      print('[WARNING]Your cluster is not kerberied but its not needed for CM Based clusters')
       pass
     if not self.cm.kerberos_enabled():
-      print('Kerberos is not enabled for ClouderaManager.')
-      print('[WARNING] Kerberos check for ClouderaManager is skipped')
+      print('[WARNING] Kerberos check for ClouderaManager is not needed for CM Based clusters')
       pass
     if not self.running_on_knox_host():
-      print('This script should be executed on the same host where Knox gateway is running (%s).' % self.knox_host)
-      print('[WARNING] The above check for service is skipped')
+      print('[WARNING] The script seems to be not running on knox host but its not needed for CM based clusters')
       pass
     return True
 
   def stack_supported(self):
     stack = self.cm.installed_stack()
-    return stack.name == 'CDH' and ( stack.version.startswith('6') or stack.version.startswith('5.15'))
+    check_version = False
+    (major,minor) = stack.version.split('.')[:2]
+    if (major == '5' and minor >= 15) or (major == '6' and minor >= 3):
+      check_version = True
+    return stack.name == 'CDH' and check_version
 
   def security_type_supported(self):
     return self.cm.cluster.security_type == 'KERBEROS'
@@ -1759,10 +1760,10 @@ if __name__ == '__main__':
   user = Memorized(User())
   print '\nThis script will check to ensure that all necessary pre-requisites have been met and then register this cluster with DataPlane.'
   print '\nThis script works with Cluster manager - Ambari or Cloudera Manager.'
-  print '\nWorking with Ambari : '
+  print '\nIf you are Working with HDP/HDF Clusters managed by Ambari : '
   print '\nPlease ensure that your cluster has kerberos enabled, Ambari has been configured to use kerberos for authentication, and Knox is installed. Once those steps have been done, run this script from the Knox host and follow the steps and prompts to complete the cluster registration process.\n'
-  print '\nWorking with Cloudera Manahger :'
-  print '\nPlease ensure you are running from one of the hosts of teh cluster'
+  print '\nIf you are Working with CDH clusters managed by Cloudera Manahger :'
+  print '\nPlease ensure you are running from one of the hosts of the cluster\n'
 
   if not ScriptPrerequisites().satisfied():
     sys.exit(1)
