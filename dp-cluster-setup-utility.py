@@ -1553,22 +1553,13 @@ class CMPrerequisites(BasePrerequisites):
     if not self.stack_supported():
       print('The stack version (%s) is not supported. Supported stacks are: CDH-5.17/CDH-6.3 or newer.' % self.cm.installed_stack())
       return False
-    if not self.security_type_supported():
-      print('[WARNING]Your cluster is not kerberied but its not needed for CM Based clusters')
-      pass
-    if not self.cm.kerberos_enabled():
-      print('[WARNING] Kerberos check for ClouderaManager is not needed for CM Based clusters')
-      pass
-    if not self.running_on_knox_host():
-      print('[WARNING] The script seems to be not running on knox host but its not needed for CM based clusters')
-      pass
     return True
 
   def stack_supported(self):
     stack = self.cm.installed_stack()
     check_version = False
     (major,minor) = stack.version.split('.')[:2]
-    if (major == '5' and minor >= 15) or (major == '6' and minor >= 3):
+    if (major == '5' and int(minor) >= 17) or (major == '6' and int(minor) >= 3):
       check_version = True
     return stack.name == 'CDH' and check_version
 
