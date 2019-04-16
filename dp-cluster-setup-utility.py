@@ -1622,8 +1622,7 @@ class FlowManager(object):
 
 
 """
-  BaseOperationsManager : 
-
+  BaseRegistrationFlow : 
 """
 
 class BaseRegistrationFlow(object):
@@ -1659,7 +1658,7 @@ class BaseRegistrationFlow(object):
     return 0
 
 """
-  AmbariOperationsManager : control Operation for ambari based clusters
+  AmbariRegistrationFlow : control Operation for ambari based clusters
 
 """
 
@@ -1720,7 +1719,7 @@ class AmbariRegistrationFlow(BaseRegistrationFlow):
     return self.handle_registration_response(response)
 
 """
-  CMOperationsManager : control Operation for Clouder Manager based clusters
+  CMRegistrationFlow : control Operation for Clouder Manager based clusters
 
 """
 class CMRegistrationFlow(BaseRegistrationFlow):
@@ -1739,6 +1738,8 @@ class CMRegistrationFlow(BaseRegistrationFlow):
     
     print 'Registering cluster to DataPlane...'
     response = dp.register_cm(cm, user)
+    if not response:
+      return 1
     return self.handle_registration_response(response)
     
 
