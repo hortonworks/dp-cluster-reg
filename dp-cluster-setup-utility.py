@@ -654,7 +654,12 @@ class ClouderaManager(BaseClusterManager):
     pass
 
 
-class AmbariCluster:
+class BaseCluster(object):
+
+  def has_service(self, service_name):
+    return service_name in self.service_names()
+  
+class AmbariCluster(BaseCluster):
   def __init__(self, cluster, client):
     self.cluster = cluster
     self.cluster_name = cluster['cluster_name']
@@ -673,9 +678,6 @@ class AmbariCluster:
 
   def service_names(self):
     return [each.name for each in self.services()]
-
-  def has_service(self, service_name):
-    return service_name in self.service_names()
 
   def add_config(self, config_type, tag, properties, note=''):
     self.client.post(Url('configurations'), {
@@ -725,7 +727,7 @@ class AmbariCluster:
 class NoClusterFound(Exception): pass
 class NoConfigFound(Exception): pass
 
-class CMCluster:
+class CMCluster(BaseCluster):
   def __init__(self, cluster, client):
     self.cluster = cluster
     self.cluster_name = cluster.name
@@ -753,9 +755,6 @@ class CMCluster:
   #
   def service_names(self):
     return [each.type for each in self.services()]
-  
-  def has_service(self, service_name):
-    return service_name in self.service_names()
 
   def add_config(self, config_type, tag, properties, note=''):
     pass
@@ -1227,6 +1226,7 @@ class AmbariTopologyUtil(TopologyUtil):
 
   def host_name(self, service_name, component_name):
     return self.ambari.cluster.service(service_name).component(component_name).host_names()[0]
+
 class CMTopologyUtil(TopologyUtil):
   def __init__(self, cm, role_names):
     self.cm = cm
@@ -1248,7 +1248,7 @@ class CMTopologyUtil(TopologyUtil):
     pass
 
   def host_name(self, service_name, component_name):
-    return self.cm.cluster.service(service_name).component(component_name).host_names()[0]
+    pass
 
 
 
