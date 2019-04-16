@@ -26,15 +26,21 @@ import urllib2
 import os
 import pwd
 import grp
+import warnings
 from contextlib import closing
 from urlparse import urlparse
 from shutil import copyfile
-# import for CM rest client
-import cm_client
-from cm_client.rest import ApiException
-########################################
 import pprint
 pp = pprint.PrettyPrinter(indent=4)
+
+
+try:
+    import cm_client
+    from cm_client.rest import ApiException
+except ImportError:
+    warnings.warn('cm_client failed to import', ImportWarning)
+
+
 class InputValidator:
   class Any:
     def valid(self, _): return True
@@ -254,6 +260,7 @@ class Credentials:
 
   def add_to(self, request):
     self.header.add_to(request)
+
 class CMRestClient:
   def __init__(self,url,credentials):
     self.url = url
@@ -952,11 +959,12 @@ class DataPlane:
 
   def register_ambari(self, ambari, knox, user):
     request_data = None
-
+    request_data = self.registration_request_dp_1_2_x_and_below(ambari, knox, user)
     if self.version.startswith("1.3"):
-      request_data = self.registration_request_dp_1_3_and_above(ambari,knox,user)
-    else:
-      request_data = self.registration_request_dp_1_2_x_and_below(ambari, knox, user)
+      req_copy = request_data.copy()
+      req_copy.update(self.additional_request_for_dp_1_3_and_above(ambari,knox))
+      # dp 1.3 needs the request object to be array
+      request_data = [req_copy]
     _, resp = self.client.post(
       'api/lakes',
       data=request_data,
@@ -997,28 +1005,16 @@ class DataPlane:
       'properties': {'tags': []}
     }
   
-  def registration_request_dp_1_3_and_above(self,ambari, knox, user):
+  def additional_request_for_dp_1_3_and_above(self,ambari, knox):
     ambari_url_via_knox = str(knox.base_url / 'gateway' / 'dp-proxy' / 'ambari')
     knox_url = str(knox.base_url / 'gateway')
-    return [{
-      'dcName': user.input('Data Center Name', 'reg.dc.name'),
+    return {
       'managerUri':ambari_url_via_knox,
-      'ambariUrl': ambari_url_via_knox,
-      'ambariIpAddress': ambari.base_url.ip_address(),
-      'location': 6789,
-      'isDatalake': self.has_selected_app('Data Steward Studio (DSS)'),
-      'name': ambari.cluster.cluster_name,
-      'description': user.input('Cluster Descriptions', 'reg.description'),
-      'state': 'TO_SYNC',
+      'ambariUrl': '',
+      'ambariIpAddress': '',
       'managerAddress': ambari.base_url.ip_address(),
-      'allowUntrusted': True,
-      'behindGateway': True,
-      'knoxEnabled': True,
-      'knoxUrl': knox_url,
       'managerType': "ambari",
-      'clusterType': ambari.cluster.type,
-      'properties': {'tags': []}
-    }]
+    }
 
   def registration_request_cm(self, cm, user):
     return [{
@@ -1055,6 +1051,7 @@ class DataPlane:
 
   def identity_url(self):
     return self.base_url / 'api' / 'identity'
+  
   def check_ambari(self,knox):
     if self.version.startswith("1.3"):
       return self._check_ambari_for_dp_1_3_and_above(knox)
@@ -1072,8 +1069,9 @@ class DataPlane:
       print 'Communication failure. DataPlane response: %s' % resp
       return False
     return True
+  
   def _check_ambari_for_dp_1_3_and_above(self, knox):
-    print 'Checking communication between DataPlane and cluster...'
+    print 'Checking communication between DataPlane and Ambari...'
     code, resp = self.client.post(
       'api/cluster-managers?action=check',
       data={
@@ -1085,14 +1083,26 @@ class DataPlane:
       },
       headers=[Header.content_type('application/json'), self.token_cookies()]
     )
-    if code != 200:
-      raise UnexpectedHttpCode('Unexpected HTTP code: %d url: %s response: %s' % (code, status_url, resp))
     if len(resp) > 0:
       return True
     return False
 
-  def check_cm(self, knox):
-    return True
+  def check_cm(self, cm):
+    print 'Checking communication between DataPlane and Cloudera Manager ...'
+    code, resp = self.client.post(
+      'api/cluster-managers?action=check',
+      data={
+	        'managerType': 'cloudera-manager',
+        	'managerUri': str(cm.base_url),
+	        'allowUntrusted': False,
+	        'withSingleSignOn': False,
+	        'behindGateway': False
+      },
+      headers=[Header.content_type('application/json'), self.token_cookies()]
+    )
+    if len(resp) > 0:
+      return True
+    return False
 
 class TokenTopology:
   TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
@@ -1559,7 +1569,7 @@ class CMPrerequisites(BasePrerequisites):
     stack = self.cm.installed_stack()
     check_version = False
     (major,minor) = stack.version.split('.')[:2]
-    if (major == '5' and int(minor) >= 17) or (major == '6' and int(minor) >= 3):
+    if (major == '5' and int(minor) >= 17) or (major == '6' and int(minor) >= 1):
       check_version = True
     return stack.name == 'CDH' and check_version
 
@@ -1606,6 +1616,9 @@ class FlowManager(object):
     if self.cluster_type.name in ['HDP', 'HDF']:
       self.flow = AmbariRegistrationFlow()
     if self.cluster_type.name == 'CDH':
+      # Check if the required module is present for API to work
+      if 'cm_client' not in sys.modules:
+        raise ImportError('No module named cm_client')
       self.flow = CMRegistrationFlow()
   
   def execute(self):
@@ -1727,6 +1740,9 @@ class CMRegistrationFlow(BaseRegistrationFlow):
     if not CMPrerequisites(cm).satisfied():
       return 1
     
+    if not dp.check_cm(cm):
+      return 1
+
     print 'Registering cluster to DataPlane...'
     response = dp.register_cm(cm, user)
     if not response:
