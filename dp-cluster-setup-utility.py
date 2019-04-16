@@ -1488,7 +1488,25 @@ class Knox:
     self._chown_to_knox(service_dir)
     self._chown_to_knox(os.path.dirname(service_dir))
 
-class AmbariPrerequisites:
+class BasePrerequisites(object):
+
+  def running_on_knox_host(self):
+    if self.knox_host in (socket.gethostname(), socket.getfqdn()):
+      return True
+    if self.knox_ip() == socket.gethostbyname(socket.gethostname()):
+      return True
+    hostname, aliases, ips = socket.gethostbyname_ex(socket.gethostname())
+    if self.knox_host == hostname or self.knox_host in aliases or self.knox_ip() in ips:
+      return True
+    return False
+
+  def knox_ip(self):
+    try:
+      return socket.gethostbyname(self.knox_host)
+    except Exception:
+      return None
+
+class AmbariPrerequisites(BasePrerequisites):
   def __init__(self, ambari):
     self.ambari = ambari
     self.knox_host = ambari.cluster.knox_host()
@@ -1525,22 +1543,8 @@ class AmbariPrerequisites:
   def security_type_supported(self):
     return self.ambari.cluster.security_type == 'KERBEROS'
 
-  def running_on_knox_host(self):
-    if self.knox_host in (socket.gethostname(), socket.getfqdn()):
-      return True
-    if self.knox_ip() == socket.gethostbyname(socket.gethostname()):
-      return True
-    hostname, aliases, ips = socket.gethostbyname_ex(socket.gethostname())
-    if self.knox_host == hostname or self.knox_host in aliases or self.knox_ip() in ips:
-      return True
-    return False
 
-  def knox_ip(self):
-    try:
-      return socket.gethostbyname(self.knox_host)
-    except Exception:
-      return None
-class CMPrerequisites:
+class CMPrerequisites(BasePrerequisites):
   def __init__(self, cm):
     self.cm = cm
     self.knox_host = cm.cluster.knox_host()
@@ -1571,21 +1575,6 @@ class CMPrerequisites:
   def security_type_supported(self):
     return self.cm.cluster.security_type == 'KERBEROS'
 
-  def running_on_knox_host(self):
-    if self.knox_host in (socket.gethostname(), socket.getfqdn()):
-      return True
-    if self.knox_ip() == socket.gethostbyname(socket.gethostname()):
-      return True
-    hostname, aliases, ips = socket.gethostbyname_ex(socket.gethostname())
-    if self.knox_host == hostname or self.knox_host in aliases or self.knox_ip() in ips:
-      return True
-    return False
-
-  def knox_ip(self):
-    try:
-      return socket.gethostbyname(self.knox_host)
-    except Exception:
-      return None
 
 class CookieThief:
   def __init__(self):
