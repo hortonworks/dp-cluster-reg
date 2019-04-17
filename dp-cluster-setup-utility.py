@@ -1320,11 +1320,14 @@ class DpProxyTopology:
     return knox.add_topology(self.name, template)
 
   def update_knox_service_defs(self, knox):
+    stack = self.ambari.installed_stack()
     if 'DPPROFILER' in self.role_names:
-      stack = self.ambari.installed_stack()
       if stack.name == 'HDP':
         stack_version = self.ambari.current_stack_version()
         knox.update_profiler_agent_service_def(stack_version)
+    if stack.name == 'HDF':
+      stack_version = self.ambari.current_stack_version()
+      knox.update_ambari_service_def(stack_version)
 
 
 class BeaconProxyTopology:
@@ -1497,7 +1500,21 @@ class Knox:
 
     self._chown_to_knox(service_dir)
     self._chown_to_knox(os.path.dirname(service_dir))
+  
+  def update_ambari_service_def(self, current_stack_version):
+    dest_services_base_dir = self._check_dir('/var/lib/knox/data-%s/services' % current_stack_version, 'service')
+    service_dir = '%s/ambari/0.2.2.0' % dest_services_base_dir
+    if os.path.isdir(service_dir):
+      print 'Service files already exist in %s' % service_dir
+    else:
+      os.makedirs(service_dir)
 
+    self._create_service_file(service_dir, 'rewrite.xml')
+    self._create_service_file(service_dir, 'service.xml')
+
+    self._chown_to_knox(service_dir)
+    self._chown_to_knox(os.path.dirname(service_dir))
+    
 class BasePrerequisites(object):
 
   def running_on_knox_host(self):
@@ -1734,7 +1751,9 @@ class CMRegistrationFlow(BaseRegistrationFlow):
   def execute(self):
     self.dp_instance = self.get_dp_instance()
     dp = self.dp_instance
-
+    if not dp.version.startswith("1.3"):
+      print("Registering CM Based cluster is not supported in DP %s" % dp.version)
+      return 1
     print "\nTell me about Cloudera Manager Instance"
     cm = ClouderaManager(user.url_input('CM URL', 'cm.url'), user.credential_input('CM admin', 'cm.admin'))
     if not CMPrerequisites(cm).satisfied():
