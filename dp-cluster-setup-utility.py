@@ -1009,9 +1009,9 @@ class DataPlane:
     ambari_url_via_knox = str(knox.base_url / 'gateway' / 'dp-proxy' / 'ambari')
     knox_url = str(knox.base_url / 'gateway')
     return {
-      'managerUri':ambari_url_via_knox,
-      'ambariUrl': '',
-      'ambariIpAddress': '',
+      'managerUri': ambari_url_via_knox,
+      'ambariUrl': ambari_url_via_knox,
+      'ambariIpAddress': ambari.base_url.ip_address(),
       'managerAddress': ambari.base_url.ip_address(),
       'managerType': "ambari",
     }
@@ -1019,9 +1019,9 @@ class DataPlane:
   def registration_request_cm(self, cm, user):
     return [{
       'dcName': user.input('Data Center Name', 'reg.dc.name'),
-      'managerUri':str(cm.base_url),
-      'ambariUrl':str(cm.base_url),
-      'ambariIpAddress': cm.base_url.ip_address(),
+      'managerUri': str(cm.base_url),
+      'ambariUrl': '',
+      'ambariIpAddress': '',
       'location': 6789,
       'isDatalake': self.has_selected_app('Data Steward Studio (DSS)'),
       'name': cm.cluster.cluster_name,
