@@ -26,9 +26,20 @@ import urllib2
 import os
 import pwd
 import grp
+import warnings
 from contextlib import closing
 from urlparse import urlparse
 from shutil import copyfile
+import pprint
+pp = pprint.PrettyPrinter(indent=4)
+
+
+try:
+    import cm_client
+    from cm_client.rest import ApiException
+except ImportError:
+    warnings.warn('cm_client failed to import', ImportWarning)
+
 
 class InputValidator:
   class Any:
@@ -46,7 +57,8 @@ class InputValidator:
 
   class YesNo(Options):
     def __init__(self): InputValidator.Options.__init__(self, ('y', 'n'))
-
+  class ClusterType(Options):
+    def __init__(self): InputValidator.Options.__init__(self, ('HDP', 'HDF', 'CDH')) 
   class Url:
     def valid(self, input):
       if not (input.startswith('http://') or input.startswith('https://')):
@@ -56,6 +68,12 @@ class InputValidator:
 
     def describe_failure(self):
       print 'The entered URL is invalid. Use the following format http(s)://host[:port]'
+
+class ClusterType:
+  def __init__(self, name):
+    self.name = name
+  def __str__(self):
+    return self.name
 
 class User:
   def decision(self, prompt, name, default):
@@ -81,7 +99,9 @@ class User:
     return Credentials(
       self.input('%s username' % name, id, default=default_user),
       self.input('%s password' % name, id, sensitive=True, default=default_password))
-
+  def cluster_type_input(self, name, id, default_cluster_type=None):
+    return ClusterType(
+      self.input('%s [HDP/HDF/CDH]' % name, id, validator=InputValidator.ClusterType(), default=default_cluster_type))
   def any_input(self, prompt='Press enter to continue'):
     return self.input(prompt, 'any', validator=InputValidator.Any())
 
@@ -112,7 +132,10 @@ class Memorized:
     answer = self.user.credential_input(name, id, default_user=self._get(key, default_user), default_password=default_password)
     self._update({key: answer.user})
     return answer
-
+  def cluster_type_input(self, name, id, default_cluster_type=None):
+    answer = self.user.cluster_type_input(name, id, default_cluster_type=self._get(id, default_cluster_type))
+    self._update({id: answer.name})
+    return answer
   def any_input(self, prompt='Press enter to continue'):
     return self.user.any_input(prompt)
 
@@ -230,12 +253,45 @@ class Credentials:
 
   def __init__(self, user, password):
     self.user = user
+    self.password = password
     self.header = Header(
       'Authorization',
       'Basic %s' % base64.encodestring('%s:%s' % (user, password)).replace('\n', ''))
 
   def add_to(self, request):
     self.header.add_to(request)
+
+class CMRestClient:
+  def __init__(self,url,credentials):
+    self.url = url
+    self.credentials = credentials
+    self.client = self._get_basic_client(url, credentials)
+  
+  def _get_basic_client(self, api_url, cred):
+    cm_client.configuration.username = cred.user
+    cm_client.configuration.password = cred.password
+    return cm_client.ApiClient(str(api_url))
+
+  def cluster_api_instance(self):
+    return cm_client.ClustersResourceApi(self.client)
+  
+  def services_api_instance(self):
+    return cm_client.ServicesResourceApi(self.client)
+  
+  def cm_api_instance(self):
+    return cm_client.ClouderaManagerResourceApi(self.client)
+  
+  def roles_api_instance(self):
+    return cm_client.RoleConfigGroupsResourceApi(self.client)
+  
+  def role_resource_instance(self):
+    return cm_client.RolesResourceApi(self.client)
+
+  def all_host_resource_instance(self): 
+    return cm_client.AllHostsResourceApi(self.client)
+
+  def parcels_resource_api(self):
+    return cm_client.ParcelsResourceApi(self.client)
 
 class RestClient:
   @classmethod
@@ -337,6 +393,19 @@ class ServiceComponent:
 
   def __str__(self):
     return self.name
+class CMServiceComponent:
+  def __init__(self, client, a_dict):
+    self.client = client
+    self.type = a_dict.type
+    self.name = a_dict.name
+    self.component = a_dict
+
+  def host_names(self):
+    return [each.hostname for each in self.component.host_ref]
+
+  def __str__(self):
+    return self.name
+
 
 class Service:
   def __init__(self, client, a_dict):
@@ -354,8 +423,50 @@ class Service:
 
   def __str__(self):
     return self.name
+class CMService:
+  def __init__(self, client, a_dict, cluster_name):
+    self.client = client
+    self.service = a_dict
+    self.cluster_name = cluster_name
+    self.name = self.service.name
+    self.type = self.service.type
+    self.display_name = self.service.display_name
 
-class Ambari:
+  def components(self):
+    roles = self.client.role_resource_instance().read_roles(self.cluster_name, self.name,filter="filter",view='summary')
+    return [CMServiceComponent(self.client, role) for role in roles.items]
+
+  def component(self, component_name):
+    matches = [each for each in self.components() if each.name == component_name]
+    return matches[0] if matches else None
+
+  def component_type(self, component_type):
+    matches = [each for each in self.components() if each.type == component_type]
+    return matches
+
+  def __str__(self):
+    return self.name
+
+
+
+class BaseClusterManager(object):
+  """ Base class for  cluster """
+  def installed_stack(self):
+    pass
+  def current_stack_version(self):
+    pass
+  def enable_trusted_proxy_for_ranger(self):
+    pass
+  def enable_trusted_proxy_for_atlas(self):
+    pass
+  def enable_trusted_proxy_for_beacon(self):
+    pass
+  def enable_trusted_proxy_for_cluster_manager(self):
+    pass
+  def kerberos_enabled(self):
+    pass
+
+class Ambari(BaseClusterManager):
   def __init__(self, base_url, credentials=Credentials('admin', 'admin'), api_version='v1'):
     self.base_url = base_url
     self.client = RestClient.forJsonApi(self.base_url / 'api' / api_version, credentials, headers=[Header.csrf()])
@@ -366,7 +477,7 @@ class Ambari:
   def _find_cluster(self):
     cluster_name = self._find_cluster_name()
     _, response = self.client.get((Url('clusters') / cluster_name).query_params(fields='Clusters/security_type,Clusters/version,Clusters/cluster_name'))
-    return Cluster(response['Clusters'], self.client.rebased(self.base_url / 'api' / self.api_version / 'clusters' / cluster_name))
+    return AmbariCluster(response['Clusters'], self.client.rebased(self.base_url / 'api' / self.api_version / 'clusters' / cluster_name))
 
   def _find_repository_version(self, cluster_name):
     _, response = self.client.get((Url('clusters') / cluster_name / 'stack_versions').query_params(**{'ClusterStackVersions/state':'CURRENT'}))
@@ -497,7 +608,65 @@ class Ambari:
     .get('properties', {}) \
     .get('ambari.tproxy.authentication.enabled', 'false').lower()
 
-class Cluster:
+class ClouderaManager(BaseClusterManager):
+  """ Base class for  cluster """
+  def __init__(self, base_url, credentials=Credentials('admin', 'admin'), api_version='v19'):
+    self.base_url = base_url
+    self.client = CMRestClient(base_url / 'api' / api_version, credentials)
+    self.api_version = api_version
+    self.cluster = self._find_cluster_details()
+    self.internal_host = self._find_internal_host_name()
+
+  def _find_cluster_details(self):
+    cluster = self._find_cluster()
+    kerb = self.client.cluster_api_instance().get_kerberos_info(cluster.name)
+    cluster.security_type = ""
+    if kerb.kerberized :
+      cluster.security_type = "KERBEROS"
+    return CMCluster(cluster,self.client)
+  
+  def _find_repository_version(self, cluster_name):
+    pass
+
+  def _find_cluster(self):
+    try:
+      response = self.client.cluster_api_instance().read_clusters(view='full')
+      return response.items[0]
+    except ApiException as e:
+      raise NoClusterFound(e)
+
+  def _find_internal_host_name(self):
+    pass
+
+  def installed_stack(self):
+    stack_ver = self.cluster.version
+    return Stack('CDH', stack_ver, self.client)
+
+  def current_stack_version(self):
+    pass
+
+  def enable_trusted_proxy_for_ranger(self):
+    pass
+
+  def enable_trusted_proxy_for_atlas(self):
+    pass
+
+  def enable_trusted_proxy_for_beacon(self):
+    pass  
+
+  def enable_trusted_proxy_for_ambari(self):
+    pass
+
+  def kerberos_enabled(self):
+    pass
+
+
+class BaseCluster(object):
+
+  def has_service(self, service_name):
+    return service_name in self.service_names()
+  
+class AmbariCluster(BaseCluster):
   def __init__(self, cluster, client):
     self.cluster = cluster
     self.cluster_name = cluster['cluster_name']
@@ -516,9 +685,6 @@ class Cluster:
 
   def service_names(self):
     return [each.name for each in self.services()]
-
-  def has_service(self, service_name):
-    return service_name in self.service_names()
 
   def add_config(self, config_type, tag, properties, note=''):
     self.client.post(Url('configurations'), {
@@ -567,6 +733,68 @@ class Cluster:
 
 class NoClusterFound(Exception): pass
 class NoConfigFound(Exception): pass
+
+class CMCluster(BaseCluster):
+  def __init__(self, cluster, client):
+    self.cluster = cluster
+    self.cluster_name = cluster.name
+    self.version = cluster.full_version
+    self.type = 'CDH'
+    self.security_type = cluster.security_type
+    self.client = client
+
+  def service(self, service_name):
+    try:
+      data = self.client.services_api_instance().read_service(self.cluster_name, service_name)
+      return Service(self.client, data)
+    except ApiException as e:
+      raise e
+
+  def services(self):
+    try:
+      response = self.client.services_api_instance().read_services(self.cluster_name, view='summary')
+      return [CMService(self.client, data, self.cluster_name) for data in response.items]
+    except ApiException as e:
+      raise e
+
+  #
+  # TODO: currently service name and service types in CM BAsed cluster differ.
+  #
+  def service_names(self):
+    return [each.type for each in self.services()]
+
+  def add_config(self, config_type, tag, properties, note=''):
+    pass
+
+  def update_config(self, config_type, a_dict, note=''):
+    pass
+
+  def config(self, config_type):
+    pass
+
+  def config_property(self, config_type, property_name, default=None):
+    pass
+
+  def knox_url(self):
+    pass
+
+  def knox_host(self):
+    pass
+
+  def knox_port(self):
+    pass
+
+  def knox_user(self):
+    pass
+
+  def knox_group(self):
+    pass
+  
+  def cluster_realm(self):
+    pass
+
+  def __str__(self):
+    return '%s cluster' % self.cluster_name
 
 class Config:
   def __init__(self, client, a_dict):
@@ -641,21 +869,39 @@ HIVE = Dependency('HIVE', 'Hive')
 HDFS = Dependency('HDFS', 'Hdfs')
 
 class DataPlane:
-  def __init__(self, url, credentials):
+  def __init__(self, url, credentials, cluster_provider):
     self.base_url = url
     self.credentials = credentials
     self.client = RestClient.forJsonApi(self.base_url, credentials)
-    self.available_apps = [
+    self.available_apps = self._get_available_apps(cluster_provider)
+    self.cluster_provider = cluster_provider
+    self.version = self._version()
+  
+  def _get_available_apps(self,cluster_provider):
+    if cluster_provider == 'CM':
+      return [
+      DpApp('Streams Messaging Manager (SMM)', 'smm', dependencies=[KNOX, RANGER, STREAMSMSGMGR, KAFKA, ZOOKEEPER]),
+    ]
+    return [
       DpApp('Data Steward Studio (DSS)', 'dss', dependencies=[KNOX, RANGER, DPPROFILER, ATLAS]),
       DpApp('Data Lifecycle Manager (DLM)', 'dlm', dependencies=[KNOX, RANGER, BEACON, HIVE, HDFS], optional_dependencies=[ATLAS]),
       DpApp('Streams Messaging Manager (SMM)', 'smm', dependencies=[KNOX, RANGER, STREAMSMSGMGR, KAFKA, ZOOKEEPER]),
       DpApp('Data Analytics Studio (DAS)', 'das', dependencies=[KNOX, RANGER, DATA_ANALYTICS_STUDIO, HIVE])
     ]
 
+  def _version(self):
+    version_url = self.base_url / 'api' / 'about'
+    code, resp = self.client.get(version_url, headers=[Header.content_type('application/json'), self.token_cookies()])
+    if code != 200:
+      raise UnexpectedHttpCode('Unexpected HTTP code: %d url: %s response: %s' % (code, status_url, resp))
+    version = resp['version']
+    return version
+
+
   def check_dependencies(self, cluster, user):
     print '\nWhich DataPlane applications do you want to use with this cluster?'
     self.select_apps(user)
-    print '\nChecking Ambari and your %s ...' % cluster
+    print '\nChecking Cluster manager - Ambari/Cloudera Manager and your %s ...' % cluster
     cluster_services = cluster.service_names()
     already_checked = set()
     has_missing = False
@@ -712,14 +958,34 @@ class DataPlane:
     return key
 
   def register_ambari(self, ambari, knox, user):
+    request_data = None
+    request_data = self.registration_request_dp_1_2_x_and_below(ambari, knox, user)
+    if self.version.startswith("1.3"):
+      req_copy = request_data.copy()
+      req_copy.update(self.additional_request_for_dp_1_3_and_above(ambari,knox))
+      # dp 1.3 needs the request object to be array
+      request_data = [req_copy]
     _, resp = self.client.post(
       'api/lakes',
-      data=self.registration_request(ambari, knox, user),
+      data=request_data,
+      headers=[Header.content_type('application/json'), self.token_cookies()]
+    )
+    if self.version.startswith("1.3"):
+      return resp
+    return [resp]
+  
+  def register_cm(self, cm, user):
+    if not self.version.startswith("1.3"):
+      print("Registering CM Based cluster is not supported in DP %s" % self.version)
+      return []
+    _, resp = self.client.post(
+      'api/lakes',
+      data=self.registration_request_cm(cm, user),
       headers=[Header.content_type('application/json'), self.token_cookies()]
     )
     return resp
-
-  def registration_request(self, ambari, knox, user):
+  
+  def registration_request_dp_1_2_x_and_below(self, ambari, knox, user):
     ambari_url_via_knox = str(knox.base_url / 'gateway' / 'dp-proxy' / 'ambari')
     knox_url = str(knox.base_url / 'gateway')
     return {
@@ -738,6 +1004,37 @@ class DataPlane:
       'clusterType': ambari.cluster.type,
       'properties': {'tags': []}
     }
+  
+  def additional_request_for_dp_1_3_and_above(self,ambari, knox):
+    ambari_url_via_knox = str(knox.base_url / 'gateway' / 'dp-proxy' / 'ambari')
+    knox_url = str(knox.base_url / 'gateway')
+    return {
+      'managerUri': ambari_url_via_knox,
+      'ambariUrl': ambari_url_via_knox,
+      'ambariIpAddress': ambari.base_url.ip_address(),
+      'managerAddress': ambari.base_url.ip_address(),
+      'managerType': "ambari",
+    }
+
+  def registration_request_cm(self, cm, user):
+    return [{
+      'dcName': user.input('Data Center Name', 'reg.dc.name'),
+      'managerUri': str(cm.base_url),
+      'ambariUrl': '',
+      'ambariIpAddress': '',
+      'location': 6789,
+      'isDatalake': self.has_selected_app('Data Steward Studio (DSS)'),
+      'name': cm.cluster.cluster_name,
+      'description': user.input('Cluster Descriptions', 'reg.description'),
+      'state': 'TO_SYNC',
+      'managerAddress': cm.base_url.ip_address(),
+      'allowUntrusted': True,
+      'behindGateway': False,
+      'knoxEnabled': False,
+      'managerType': "cloudera-manager",
+      'clusterType': cm.cluster.type,
+      'properties': {'tags': []}
+    }]
 
   def tokens(self):
     thief = CookieThief()
@@ -754,8 +1051,13 @@ class DataPlane:
 
   def identity_url(self):
     return self.base_url / 'api' / 'identity'
-
-  def check_ambari(self, knox):
+  
+  def check_ambari(self,knox):
+    if self.version.startswith("1.3"):
+      return self._check_ambari_for_dp_1_3_and_above(knox)
+    return self._check_ambari_for_dp_1_2_x_and_below(knox)
+  
+  def _check_ambari_for_dp_1_2_x_and_below(self, knox):
     print 'Checking communication between DataPlane and cluster...'
     status_url = Url('api/ambari/status').query_params(url=knox.base_url / 'gateway/dp-proxy/ambari', allowUntrusted='true', behindGateway='true')
     code, resp = self.client.get(status_url, headers=[Header.content_type('application/json'), self.token_cookies()])
@@ -767,6 +1069,40 @@ class DataPlane:
       print 'Communication failure. DataPlane response: %s' % resp
       return False
     return True
+  
+  def _check_ambari_for_dp_1_3_and_above(self, knox):
+    print 'Checking communication between DataPlane and Ambari...'
+    code, resp = self.client.post(
+      'api/cluster-managers?action=check',
+      data={
+	        'managerType': 'ambari',
+        	'managerUri': str(knox.base_url / 'gateway/dp-proxy/ambari'),
+	        'allowUntrusted': True,
+	        'withSingleSignOn': False,
+	        'behindGateway': True
+      },
+      headers=[Header.content_type('application/json'), self.token_cookies()]
+    )
+    if len(resp) > 0:
+      return True
+    return False
+
+  def check_cm(self, cm):
+    print 'Checking communication between DataPlane and Cloudera Manager ...'
+    code, resp = self.client.post(
+      'api/cluster-managers?action=check',
+      data={
+	        'managerType': 'cloudera-manager',
+        	'managerUri': str(cm.base_url),
+	        'allowUntrusted': False,
+	        'withSingleSignOn': False,
+	        'behindGateway': False
+      },
+      headers=[Header.content_type('application/json'), self.token_cookies()]
+    )
+    if len(resp) > 0:
+      return True
+    return False
 
 class TokenTopology:
   TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
@@ -853,6 +1189,10 @@ class TopologyUtil:
       <url>{url}</url>
     </service>""".format(role=name, url=url, version_str=version_str)
 
+class AmbariTopologyUtil(TopologyUtil):
+  def __init__(self, ambari, role_names):
+    self.ambari = ambari
+    self.role_names = role_names
   def ranger_url(self):
     host = self.host_name('RANGER', 'RANGER_ADMIN')
     if self.ambari.cluster.config_property('ranger-admin-site', 'ranger.service.https.attrib.ssl.enabled') == 'true':
@@ -896,6 +1236,30 @@ class TopologyUtil:
 
   def host_name(self, service_name, component_name):
     return self.ambari.cluster.service(service_name).component(component_name).host_names()[0]
+
+class CMTopologyUtil(TopologyUtil):
+  def __init__(self, cm, role_names):
+    self.cm = cm
+    self.role_names = role_names
+
+  def ranger_url(self):
+    pass
+
+  def atlas_url(self):
+    pass
+
+  def dpprofiler_url(self):
+    pass
+
+  def beacon_url(self):
+    pass
+
+  def streamsmsgmgr_url(self):
+    pass
+
+  def host_name(self, service_name, component_name):
+    pass
+
 
 
 class DpProxyTopology:
@@ -1134,7 +1498,25 @@ class Knox:
     self._chown_to_knox(service_dir)
     self._chown_to_knox(os.path.dirname(service_dir))
 
-class AmbariPrerequisites:
+class BasePrerequisites(object):
+
+  def running_on_knox_host(self):
+    if self.knox_host in (socket.gethostname(), socket.getfqdn()):
+      return True
+    if self.knox_ip() == socket.gethostbyname(socket.gethostname()):
+      return True
+    hostname, aliases, ips = socket.gethostbyname_ex(socket.gethostname())
+    if self.knox_host == hostname or self.knox_host in aliases or self.knox_ip() in ips:
+      return True
+    return False
+
+  def knox_ip(self):
+    try:
+      return socket.gethostbyname(self.knox_host)
+    except Exception:
+      return None
+
+class AmbariPrerequisites(BasePrerequisites):
   def __init__(self, ambari):
     self.ambari = ambari
     self.knox_host = ambari.cluster.knox_host()
@@ -1146,10 +1528,10 @@ class AmbariPrerequisites:
     if not self.security_type_supported():
       print 'Your cluster is not kerberied. Please enable Kerberos using Ambari first.'
       return False
-    if not ambari.kerberos_enabled():
+    if not self.ambari.kerberos_enabled():
       print 'Kerberos is not enabled for Ambari. Please enable it by running: ambari-server setup-kerberos from your Ambari Server host.'
       return False
-    if ambari.installed_stack().version.startswith('2.6') and not ambari.trusted_proxy_enabled():
+    if self.ambari.installed_stack().version.startswith('2.6') and not ambari.trusted_proxy_enabled():
       print 'Trusted Proxy is not enabled for Ambari. Please enable it by running: ambari-server setup-trusted-proxy from your Ambari Server host.'
       return False
     if not self.running_on_knox_host():
@@ -1171,21 +1553,29 @@ class AmbariPrerequisites:
   def security_type_supported(self):
     return self.ambari.cluster.security_type == 'KERBEROS'
 
-  def running_on_knox_host(self):
-    if self.knox_host in (socket.gethostname(), socket.getfqdn()):
-      return True
-    if self.knox_ip() == socket.gethostbyname(socket.gethostname()):
-      return True
-    hostname, aliases, ips = socket.gethostbyname_ex(socket.gethostname())
-    if self.knox_host == hostname or self.knox_host in aliases or self.knox_ip() in ips:
-      return True
-    return False
 
-  def knox_ip(self):
-    try:
-      return socket.gethostbyname(self.knox_host)
-    except Exception:
-      return None
+class CMPrerequisites(BasePrerequisites):
+  def __init__(self, cm):
+    self.cm = cm
+    self.knox_host = cm.cluster.knox_host()
+
+  def satisfied(self):
+    if not self.stack_supported():
+      print('The stack version (%s) is not supported. Supported stacks are: CDH-5.17/CDH-6.3 or newer.' % self.cm.installed_stack())
+      return False
+    return True
+
+  def stack_supported(self):
+    stack = self.cm.installed_stack()
+    check_version = False
+    (major,minor) = stack.version.split('.')[:2]
+    if (major == '5' and int(minor) >= 17) or (major == '6' and int(minor) >= 1):
+      check_version = True
+    return stack.name == 'CDH' and check_version
+
+  def security_type_supported(self):
+    return self.cm.cluster.security_type == 'KERBEROS'
+
 
 class CookieThief:
   def __init__(self):
@@ -1213,67 +1603,170 @@ class ScriptPrerequisites:
 
   def current_user(self):
     return pwd.getpwuid(os.getuid()).pw_name
+"""
+  Class for controlling flow of execution 
+"""
 
+class FlowManager(object):
+  def __init__(self, cluster_type):
+    self.cluster_type = cluster_type
+    self.flow = None
+
+  def initialize(self):
+    if self.cluster_type.name in ['HDP', 'HDF']:
+      self.flow = AmbariRegistrationFlow()
+    if self.cluster_type.name == 'CDH':
+      # Check if the required module is present for API to work
+      if 'cm_client' not in sys.modules:
+        raise ImportError('No module named cm_client')
+      self.flow = CMRegistrationFlow()
+  
+  def execute(self):
+    return self.flow.execute()
+
+
+"""
+  BaseRegistrationFlow : 
+"""
+
+class BaseRegistrationFlow(object):
+
+  def __init__(self):
+    self.provider = None
+    self.dp_instance = None
+
+  def execute(self):
+    pass
+
+  def get_dp_instance(self):
+    print 'Tell me about your DataPlane Instance'
+    return DataPlane(user.url_input('DataPlane URL', 'dp.url'), user.credential_input('DP Admin', 'dp.admin'),self.provider)
+
+  def get_roles(self, cluster):
+    merged_dependencies = self.dp_instance.dependencies()
+    for each in self.dp_instance.optional_dependencies():
+      if cluster.cluster_has_service(each.service_name):
+        merged_dependencies.add(each)
+    role_names = map(lambda each: each.service_name, merged_dependencies)
+    return role_names
+  
+  def handle_registration_response(self, responses):
+    for response in responses:
+      # For DP 1.3 the response object contains the code and message
+      if 'status' in response and response.get('status') != 200 :
+        print('Failed! %s' % response.get('message'))
+        return 1
+      print('Cluster : %s is registered with id : %s '% (response.get('name'), response.get('id')))
+    if response:
+      print('Success! You are all set, your cluster is registered and ready to use.')
+    return 0
+
+"""
+  AmbariRegistrationFlow : control Operation for ambari based clusters
+
+"""
+
+class AmbariRegistrationFlow(BaseRegistrationFlow):
+  
+  def __init__(self):
+    self.provider = 'AMBARI'
+    self.dp_instance = None
+
+  def execute(self):
+    self.dp_instance = self.get_dp_instance()
+    
+    dp = self.dp_instance
+    print "\nTell me about this cluster's Ambari Instance"
+    ambari = Ambari(user.url_input('Ambari URL', 'ambari.url'), user.credential_input('Ambari admin', 'ambari.admin'))
+    ambari.enable_trusted_proxy_for_ambari()
+
+    if not AmbariPrerequisites(ambari).satisfied():
+      return 1
+    
+    if dp.check_dependencies(ambari.cluster, user):
+      return 1
+
+    role_names = self.get_roles(ambari)
+
+    topology_util = AmbariTopologyUtil(ambari, role_names)
+
+    knox = Knox(user.url_input('Knox URL that is network accessible from DataPlane', 'knox.url', default=str(ambari.cluster.knox_url())), knox_user=ambari.cluster.knox_user(), knox_group=ambari.cluster.knox_group())
+
+    topologies_to_deploy = [TokenTopology(dp.public_key()), DpProxyTopology(ambari, dp.dependency_names(), topology_util)]
+
+    if 'BEACON' in dp.dependency_names():
+        topologies_to_deploy.extend([BeaconProxyTopology(ambari, dp.dependency_names(), topology_util)])
+
+    if 'DATA_ANALYTICS_STUDIO' in dp.dependency_names():
+      topologies_to_deploy.extend([TokenTopology(dp.public_key(), 'redirecttoken', 10000), RedirectTopology('redirect')])
+    for topology in topologies_to_deploy:
+      print 'Deploying Knox topology:', topology.name
+      topology.deploy(knox)
+
+    if 'RANGER' in dp.dependency_names() or dp.optional_dependency_names():
+      ambari.enable_trusted_proxy_for_ranger()
+    if 'ATLAS' in dp.dependency_names() or dp.optional_dependency_names():
+      ambari.enable_trusted_proxy_for_atlas()
+    if 'BEACON' in dp.dependency_names() or dp.optional_dependency_names():
+      ambari.enable_trusted_proxy_for_beacon()
+
+    print 'Waiting for knox topologies to get activated. Sleeping for 10 seconds...'
+    time.sleep(10)
+    print 'Cluster changes are complete! Please log into Ambari, confirm the changes made to your cluster as part of this script and restart affected services.'
+    user.any_input()
+
+    if not dp.check_ambari(knox):
+      return 1
+
+    print 'Registering cluster to DataPlane...'
+    response = dp.register_ambari(ambari, knox, user)
+    return self.handle_registration_response(response)
+
+"""
+  CMRegistrationFlow : control Operation for Clouder Manager based clusters
+
+"""
+class CMRegistrationFlow(BaseRegistrationFlow):
+  def __init__(self):
+    self.provider = 'CM'
+    self.dp_instance = None
+
+  def execute(self):
+    self.dp_instance = self.get_dp_instance()
+    dp = self.dp_instance
+
+    print "\nTell me about Cloudera Manager Instance"
+    cm = ClouderaManager(user.url_input('CM URL', 'cm.url'), user.credential_input('CM admin', 'cm.admin'))
+    if not CMPrerequisites(cm).satisfied():
+      return 1
+    
+    if not dp.check_cm(cm):
+      return 1
+
+    print 'Registering cluster to DataPlane...'
+    response = dp.register_cm(cm, user)
+    if not response:
+      return 1
+    return self.handle_registration_response(response)
+    
+
+"""
+  Execution Starts here
+"""  
 if __name__ == '__main__':
   user = Memorized(User())
-  print '\nThis script will check to ensure that all necessary pre-requisites have been met and then register this cluster with DataPlane.\n'
-  print 'Please ensure that your cluster has kerberos enabled, Ambari has been configured to use kerberos for authentication, and Knox is installed. Once those steps have been done, run this script from the Knox host and follow the steps and prompts to complete the cluster registration process.\n'
+  print '\nThis script will check to ensure that all necessary pre-requisites have been met and then register this cluster with DataPlane.'
+  print '\nThis script works with Cluster manager - Ambari or Cloudera Manager.'
+  print '\nIf you are Working with HDP/HDF Clusters managed by Ambari : '
+  print '\nPlease ensure that your cluster has kerberos enabled, Ambari has been configured to use kerberos for authentication, and Knox is installed. Once those steps have been done, run this script from the Knox host and follow the steps and prompts to complete the cluster registration process.\n'
+  print '\nIf you are Working with CDH clusters managed by Cloudera Manahger :'
+  print '\nPlease ensure you are running from one of the hosts of the cluster\n'
 
   if not ScriptPrerequisites().satisfied():
     sys.exit(1)
-
-  print 'Tell me about your DataPlane Instance'
-  dp = DataPlane(user.url_input('DataPlane URL', 'dp.url'), user.credential_input('DP Admin', 'dp.admin'))
-
-  print "\nTell me about this cluster's Ambari Instance"
-  ambari = Ambari(user.url_input('Ambari URL', 'ambari.url'), user.credential_input('Ambari admin', 'ambari.admin'))
-  ambari.enable_trusted_proxy_for_ambari()
-
-  if not AmbariPrerequisites(ambari).satisfied():
-    sys.exit(1)
-  if dp.check_dependencies(ambari.cluster, user):
-    sys.exit(1)
-
-  merged_dependencies = dp.dependencies()
-  for each in dp.optional_dependencies():
-    if ambari.cluster_has_service(each.service_name):
-      merged_dependencies.add(each)
-
-  role_names = map(lambda each: each.service_name, merged_dependencies)
-
-
-  topology_util = TopologyUtil(ambari, role_names)
-
-  knox = Knox(user.url_input('Knox URL that is network accessible from DataPlane', 'knox.url', default=str(ambari.cluster.knox_url())), knox_user=ambari.cluster.knox_user(), knox_group=ambari.cluster.knox_group())
-
-  topologies_to_deploy = [TokenTopology(dp.public_key()), DpProxyTopology(ambari, dp.dependency_names(), topology_util)]
-
-  if 'BEACON' in dp.dependency_names():
-      topologies_to_deploy.extend([BeaconProxyTopology(ambari, dp.dependency_names(), topology_util)])
-
-  if 'DATA_ANALYTICS_STUDIO' in dp.dependency_names():
-    topologies_to_deploy.extend([TokenTopology(dp.public_key(), 'redirecttoken', 10000), RedirectTopology('redirect')])
-  for topology in topologies_to_deploy:
-    print 'Deploying Knox topology:', topology.name
-    topology.deploy(knox)
-
-  if 'RANGER' in dp.dependency_names() or dp.optional_dependency_names():
-    ambari.enable_trusted_proxy_for_ranger()
-  if 'ATLAS' in dp.dependency_names() or dp.optional_dependency_names():
-    ambari.enable_trusted_proxy_for_atlas()
-  if 'BEACON' in dp.dependency_names() or dp.optional_dependency_names():
-    ambari.enable_trusted_proxy_for_beacon()
-
-  print 'Waiting for knox topologies to get activated. Sleeping for 10 seconds...'
-  time.sleep(10)
-  print 'Cluster changes are complete! Please log into Ambari, confirm the changes made to your cluster as part of this script and restart affected services.'
-  user.any_input()
-
-  if not dp.check_ambari(knox):
-    sys.exit(1)
-
-  print 'Registering cluster to DataPlane...'
-  response = dp.register_ambari(ambari, knox, user)
-  print 'Cluster is registered with id', response['id']
-
-  print 'Success! You are all set, your cluster is registered and ready to use.'
+  # Get the cluster type and execute the flow
+  print('Tell me about your Cluster type')
+  flow_manager = FlowManager(user.cluster_type_input('Cluster Type ','cluster.type'))
+  flow_manager.initialize()
+  exit_code = flow_manager.execute()
+  sys.exit(exit_code)
