@@ -1320,11 +1320,14 @@ class DpProxyTopology:
     return knox.add_topology(self.name, template)
 
   def update_knox_service_defs(self, knox):
+    stack = self.ambari.installed_stack()
     if 'DPPROFILER' in self.role_names:
-      stack = self.ambari.installed_stack()
       if stack.name == 'HDP':
         stack_version = self.ambari.current_stack_version()
         knox.update_profiler_agent_service_def(stack_version)
+    if stack.name == 'HDF':
+      stack_version = self.ambari.current_stack_version()
+      knox.update_ambari_service_def(stack_version)
 
 
 class BeaconProxyTopology:
@@ -1478,22 +1481,30 @@ class Knox:
     print '  Changing permissions of %s to %o.' % (topology_name, 0644)
     os.chmod(target, 0644)
 
-  def _create_service_file(self, service_dir, file_name):
+  def _create_service_file(self, service, version, file_name, service_dir):
     dest_file = '%s/%s' % (service_dir, file_name)
-    src_file = self._check_file('%s/services/profiler-agent/1.0.0/%s' % (os.path.dirname(os.path.realpath(__file__)), file_name))
+    src_file = self._check_file('%s/services/%s/%s/%s' % (os.path.dirname(os.path.realpath(__file__)), service, version, file_name))
     copyfile(src_file, dest_file)
     self._chown_to_knox(dest_file)
 
   def update_profiler_agent_service_def(self, current_stack_version):
     dest_services_base_dir = self._check_dir('/var/lib/knox/data-%s/services' % current_stack_version, 'service')
     service_dir = '%s/profiler-agent/1.0.0' % dest_services_base_dir
+    self._execute_service_conf_file_copy_task("profiler-agent", "1.0.0", service_dir)
+  
+  def update_ambari_service_def(self, current_stack_version):
+    dest_services_base_dir = self._check_dir('/var/lib/knox/data-%s/services' % current_stack_version, 'service')
+    service_dir = '%s/ambari/0.2.2.0' % dest_services_base_dir
+    self._execute_service_conf_file_copy_task("ambari", "0.2.2.0", service_dir)
+    
+  def _execute_service_conf_file_copy_task(self, service, version, service_dir):
     if os.path.isdir(service_dir):
       print 'Service files already exist in %s' % service_dir
     else:
       os.makedirs(service_dir)
 
-    self._create_service_file(service_dir, 'rewrite.xml')
-    self._create_service_file(service_dir, 'service.xml')
+    self._create_service_file(service, version, 'rewrite.xml', service_dir)
+    self._create_service_file(service, version, 'service.xml', service_dir)
 
     self._chown_to_knox(service_dir)
     self._chown_to_knox(os.path.dirname(service_dir))
@@ -1734,7 +1745,9 @@ class CMRegistrationFlow(BaseRegistrationFlow):
   def execute(self):
     self.dp_instance = self.get_dp_instance()
     dp = self.dp_instance
-
+    if not dp.version.startswith("1.3"):
+      print("Registering CM Based cluster is not supported in DP %s" % dp.version)
+      return 1
     print "\nTell me about Cloudera Manager Instance"
     cm = ClouderaManager(user.url_input('CM URL', 'cm.url'), user.credential_input('CM admin', 'cm.admin'))
     if not CMPrerequisites(cm).satisfied():
