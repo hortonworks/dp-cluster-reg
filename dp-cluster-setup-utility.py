@@ -1032,25 +1032,26 @@ class DataPlane:
     registration_request = []
     for cluster_name in cluster_names:
       cluster_obj = next(obj for obj in cm.clusters if obj.cluster_name == cluster_name)
-      print("Enter details for cluster : %s" % cluster_name)
-      registration_request.append({
-        'dcName': user.input('Data Center Name', 'reg.dc.name'),
-        'managerUri': str(cm.base_url),
-        'ambariUrl': '',
-        'ambariIpAddress': '',
-        'location': 6789,
-        'isDatalake': self.has_selected_app('Data Steward Studio (DSS)'),
-        'name': cluster_obj.cluster_name,
-        'description': user.input('Cluster Descriptions', 'reg.description'),
-        'state': 'TO_SYNC',
-        'managerAddress': cm.base_url.ip_address(),
-        'allowUntrusted': True,
-        'behindGateway': False,
-        'knoxEnabled': False,
-        'managerType': "cloudera-manager",
-        'clusterType': cluster_obj.type,
-        'properties': {'tags': []}
-      })
+      if cluster_obj:
+        print("Enter details for cluster : %s" % cluster_name)
+        registration_request.append({
+          'dcName': user.input('Data Center Name', 'reg.dc.name'),
+          'managerUri': str(cm.base_url),
+          'ambariUrl': '',
+          'ambariIpAddress': '',
+          'location': 6789,
+          'isDatalake': self.has_selected_app('Data Steward Studio (DSS)'),
+          'name': cluster_obj.cluster_name,
+          'description': user.input('Cluster Descriptions', 'reg.description'),
+          'state': 'TO_SYNC',
+          'managerAddress': cm.base_url.ip_address(),
+          'allowUntrusted': True,
+          'behindGateway': False,
+          'knoxEnabled': False,
+          'managerType': "cloudera-manager",
+          'clusterType': cluster_obj.type,
+          'properties': {'tags': []}
+        })
     return registration_request
 
   def tokens(self):
@@ -1822,8 +1823,8 @@ if __name__ == '__main__':
   print '\nIf you are Working with CDH clusters managed by Cloudera Manager :'
   print '\nPlease ensure you are running from one of the hosts of the cluster\n'
 
-  # if not ScriptPrerequisites().satisfied():
-  #   sys.exit(1)
+  if not ScriptPrerequisites().satisfied():
+    sys.exit(1)
   # Get the cluster type and execute the flow
   print('Tell me about your Cluster type')
   flow_manager = FlowManager(user.cluster_type_input('Cluster Type ','cluster.type'))
