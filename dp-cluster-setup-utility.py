@@ -1031,8 +1031,9 @@ class DataPlane:
   def registration_request_cm(self, cm, user, cluster_names):
     registration_request = []
     for cluster_name in cluster_names:
-      cluster_obj = next(obj for obj in cm.clusters if obj.cluster_name == cluster_name)
-      if cluster_obj:
+      cluster_objects = filter(lambda c: c.cluster_name == cluster_name, cm.clusters)
+      if cluster_objects:
+        cluster_obj = cluster_objects[0]
         print("Enter details for cluster : %s" % cluster_name)
         registration_request.append({
           'dcName': user.input('Data Center Name', 'reg.dc.name'),
@@ -1589,7 +1590,7 @@ class CMPrerequisites(BasePrerequisites):
   def satisfied(self):
     for  cluster in self.cm.clusters:
       if not self.stack_supported(cluster):
-        print('The stack version (%s) is not supported for %s. Supported stacks are: CDH-5.17/CDH-6.3 or newer.' % (cluster.installed_stack(), cluster.cluster_name))
+        print('The stack version (%s) is not supported for %s. Supported stacks are: CDH-5.17  or newer.' % (cluster.installed_stack(), cluster.cluster_name))
         return False
     return True
 
@@ -1597,7 +1598,7 @@ class CMPrerequisites(BasePrerequisites):
     stack = cluster.installed_stack()
     check_version = False
     (major,minor) = stack.version.split('.')[:2]
-    if (major == '5' and int(minor) >= 17) or (major == '6' and int(minor) >= 3):
+    if (major == '5' and int(minor) >= 17):
       check_version = True
     return stack.name == 'CDH' and check_version
 
