@@ -614,33 +614,29 @@ class ClouderaManager(BaseClusterManager):
     self.base_url = base_url
     self.client = CMRestClient(base_url / 'api' / api_version, credentials)
     self.api_version = api_version
-    self.cluster = self._find_cluster_details()
+    self.clusters = self._find_clusters_detail()
+    self.total_clusters = self._total_clusters()
     self.internal_host = self._find_internal_host_name()
 
-  def _find_cluster_details(self):
-    cluster = self._find_cluster()
-    kerb = self.client.cluster_api_instance().get_kerberos_info(cluster.name)
-    cluster.security_type = ""
-    if kerb.kerberized :
-      cluster.security_type = "KERBEROS"
-    return CMCluster(cluster,self.client)
+  def _find_clusters_detail(self):
+    clusters = self._find_clusters()
+    return [CMCluster(cluster,self.client) for cluster in clusters]
   
   def _find_repository_version(self, cluster_name):
     pass
 
-  def _find_cluster(self):
+  def _total_clusters(self):
+    return len(self.clusters) if self.clusters else 0
+
+  def _find_clusters(self):
     try:
       response = self.client.cluster_api_instance().read_clusters(view='full')
-      return response.items[0]
+      return response.items
     except ApiException as e:
       raise NoClusterFound(e)
 
   def _find_internal_host_name(self):
     pass
-
-  def installed_stack(self):
-    stack_ver = self.cluster.version
-    return Stack('CDH', stack_ver, self.client)
 
   def current_stack_version(self):
     pass
@@ -736,12 +732,19 @@ class NoConfigFound(Exception): pass
 
 class CMCluster(BaseCluster):
   def __init__(self, cluster, client):
+    self.client = client
     self.cluster = cluster
     self.cluster_name = cluster.name
     self.version = cluster.full_version
     self.type = 'CDH'
-    self.security_type = cluster.security_type
-    self.client = client
+    self.security_type = self._get_cluster_security_type(cluster)
+
+  def _get_cluster_security_type(self,cluster):
+    kerb = self.client.cluster_api_instance().get_kerberos_info(self.cluster.name)
+    security_type = ""
+    if kerb.kerberized :
+      security_type = "KERBEROS"
+    return security_type
 
   def service(self, service_name):
     try:
@@ -757,6 +760,9 @@ class CMCluster(BaseCluster):
     except ApiException as e:
       raise e
 
+  def installed_stack(self):
+    stack_ver = self.version
+    return Stack('CDH', stack_ver, self.client)
   #
   # TODO: currently service name and service types in CM BAsed cluster differ.
   #
@@ -974,13 +980,13 @@ class DataPlane:
       return resp
     return [resp]
   
-  def register_cm(self, cm, user):
+  def register_cm(self, cm, user, clusters):
     if not self.version.startswith("1.3"):
       print("Registering CM Based cluster is not supported in DP %s" % self.version)
       return []
     _, resp = self.client.post(
       'api/lakes',
-      data=self.registration_request_cm(cm, user),
+      data=self.registration_request_cm(cm, user, clusters),
       headers=[Header.content_type('application/json'), self.token_cookies()]
     )
     return resp
@@ -1016,25 +1022,32 @@ class DataPlane:
       'managerType': "ambari",
     }
 
-  def registration_request_cm(self, cm, user):
-    return [{
-      'dcName': user.input('Data Center Name', 'reg.dc.name'),
-      'managerUri': str(cm.base_url),
-      'ambariUrl': '',
-      'ambariIpAddress': '',
-      'location': 6789,
-      'isDatalake': self.has_selected_app('Data Steward Studio (DSS)'),
-      'name': cm.cluster.cluster_name,
-      'description': user.input('Cluster Descriptions', 'reg.description'),
-      'state': 'TO_SYNC',
-      'managerAddress': cm.base_url.ip_address(),
-      'allowUntrusted': True,
-      'behindGateway': False,
-      'knoxEnabled': False,
-      'managerType': "cloudera-manager",
-      'clusterType': cm.cluster.type,
-      'properties': {'tags': []}
-    }]
+  def registration_request_cm(self, cm, user, cluster_names):
+    registration_request = []
+    for cluster_name in cluster_names:
+      cluster_objects = filter(lambda c: c.cluster_name == cluster_name, cm.clusters)
+      if cluster_objects:
+        cluster_obj = cluster_objects[0]
+        print("Enter details for cluster : %s" % cluster_name)
+        registration_request.append({
+          'dcName': user.input('Data Center Name', 'reg.dc.name'),
+          'managerUri': str(cm.base_url),
+          'ambariUrl': '',
+          'ambariIpAddress': '',
+          'location': 6789,
+          'isDatalake': self.has_selected_app('Data Steward Studio (DSS)'),
+          'name': cluster_obj.cluster_name,
+          'description': user.input('Cluster Descriptions', 'reg.description'),
+          'state': 'TO_SYNC',
+          'managerAddress': cm.base_url.ip_address(),
+          'allowUntrusted': True,
+          'behindGateway': False,
+          'knoxEnabled': False,
+          'managerType': "cloudera-manager",
+          'clusterType': cluster_obj.type,
+          'properties': {'tags': []}
+        })
+    return registration_request
 
   def tokens(self):
     thief = CookieThief()
@@ -1100,9 +1113,8 @@ class DataPlane:
       },
       headers=[Header.content_type('application/json'), self.token_cookies()]
     )
-    if len(resp) > 0:
-      return True
-    return False
+    return resp
+
 
 class TokenTopology:
   TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
@@ -1568,25 +1580,21 @@ class AmbariPrerequisites(BasePrerequisites):
 class CMPrerequisites(BasePrerequisites):
   def __init__(self, cm):
     self.cm = cm
-    self.knox_host = cm.cluster.knox_host()
 
   def satisfied(self):
-    if not self.stack_supported():
-      print('The stack version (%s) is not supported. Supported stacks are: CDH-5.17/CDH-6.3 or newer.' % self.cm.installed_stack())
-      return False
+    for  cluster in self.cm.clusters:
+      if not self.stack_supported(cluster):
+        print('The stack version (%s) is not supported for %s. Supported stacks are: CDH-5.17  or newer.' % (cluster.installed_stack(), cluster.cluster_name))
+        return False
     return True
 
-  def stack_supported(self):
-    stack = self.cm.installed_stack()
+  def stack_supported(self, cluster):
+    stack = cluster.installed_stack()
     check_version = False
     (major,minor) = stack.version.split('.')[:2]
     if (major == '5' and int(minor) >= 17) or (major == '6' and int(minor) >= 1):
       check_version = True
     return stack.name == 'CDH' and check_version
-
-  def security_type_supported(self):
-    return self.cm.cluster.security_type == 'KERBEROS'
-
 
 class CookieThief:
   def __init__(self):
@@ -1743,6 +1751,7 @@ class CMRegistrationFlow(BaseRegistrationFlow):
     self.dp_instance = None
 
   def execute(self):
+    
     self.dp_instance = self.get_dp_instance()
     dp = self.dp_instance
     if not dp.version.startswith("1.3"):
@@ -1750,17 +1759,47 @@ class CMRegistrationFlow(BaseRegistrationFlow):
       return 1
     print "\nTell me about Cloudera Manager Instance"
     cm = ClouderaManager(user.url_input('CM URL', 'cm.url'), user.credential_input('CM admin', 'cm.admin'))
+
     if not CMPrerequisites(cm).satisfied():
       return 1
     
-    if not dp.check_cm(cm):
-      return 1
+    clusters_resp_from_dp = dp.check_cm(cm)
 
-    print 'Registering cluster to DataPlane...'
-    response = dp.register_cm(cm, user)
-    if not response:
+    if not clusters_resp_from_dp:
       return 1
-    return self.handle_registration_response(response)
+    
+    clusters_registered = [cluster.get("name") for cluster in clusters_resp_from_dp if not cluster.get("isUnregistered")]
+    clusters_not_registered = [cluster.get("name") for cluster in clusters_resp_from_dp if cluster.get("isUnregistered")]
+    clusters_to_register = []
+
+    print "Total clusters managed by Cloudera Manager Instance : %s" % cm.total_clusters
+    if cm.total_clusters == 1:
+      clusters_to_register = clusters_not_registered
+    elif cm.total_clusters > 1:
+      print "Clusters already registered in DataPlane : %s" % ','.join([cluster for cluster in clusters_registered])
+      print "Clusters which can be registered in DataPlane : %s" % ','.join([cluster for cluster in clusters_not_registered])
+      if len(clusters_not_registered) > 0:
+        install_all = user.decision('%s y/n' % "Register all", "cm.register_all", default=False)
+        if install_all:
+          clusters_to_register = clusters_not_registered
+        else:
+          user_provided_clusters = []
+          cluster_input_file = user.input('Enter full path of a file containing names of clusters you would like to register', 'cm.cluster_file')
+          with open(cluster_input_file, 'r') as f:
+            for line in f:
+              user_provided_clusters.append(line.strip())
+          clusters_to_register = [ cluster for cluster in user_provided_clusters if cluster in clusters_not_registered]
+        print "\nClusters which will be registered in DataPlane : %s" % ','.join([cluster for cluster in clusters_to_register])
+    
+    if clusters_to_register:
+      print 'Registering cluster to DataPlane...'
+      response = dp.register_cm(cm, user, clusters_to_register)
+      if not response:
+        return 1
+      return self.handle_registration_response(response)
+    else:
+      print 'No valid cluster found to be registered to DataPlane...'
+      return 0
     
 
 """
@@ -1772,7 +1811,7 @@ if __name__ == '__main__':
   print '\nThis script works with Cluster manager - Ambari or Cloudera Manager.'
   print '\nIf you are Working with HDP/HDF Clusters managed by Ambari : '
   print '\nPlease ensure that your cluster has kerberos enabled, Ambari has been configured to use kerberos for authentication, and Knox is installed. Once those steps have been done, run this script from the Knox host and follow the steps and prompts to complete the cluster registration process.\n'
-  print '\nIf you are Working with CDH clusters managed by Cloudera Manahger :'
+  print '\nIf you are Working with CDH clusters managed by Cloudera Manager :'
   print '\nPlease ensure you are running from one of the hosts of the cluster\n'
 
   if not ScriptPrerequisites().satisfied():
