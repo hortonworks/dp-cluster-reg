@@ -635,12 +635,6 @@ class ClouderaManager(BaseClusterManager):
     except ApiException as e:
       raise NoClusterFound(e)
 
-  def get_cluster_instance(self, cluster_name):
-    for cluster in self.clusters:
-      if cluster.name == cluster_name:
-        return cluster
-    return None
-  
   def _find_internal_host_name(self):
     pass
 
@@ -1598,13 +1592,9 @@ class CMPrerequisites(BasePrerequisites):
     stack = cluster.installed_stack()
     check_version = False
     (major,minor) = stack.version.split('.')[:2]
-    if (major == '5' and int(minor) >= 17):
+    if (major == '5' and int(minor) >= 17) or (major == '6' and int(minor) >= 1):
       check_version = True
     return stack.name == 'CDH' and check_version
-
-  def security_type_supported(self):
-    pass
-
 
 class CookieThief:
   def __init__(self):
@@ -1794,7 +1784,7 @@ class CMRegistrationFlow(BaseRegistrationFlow):
           clusters_to_register = clusters_not_registered
         else:
           user_provided_clusters = []
-          cluster_input_file = user.input('Enter full path of file containing cluster names ', 'cm.cluster_file')
+          cluster_input_file = user.input('Enter full path of a file containing names of clusters you would like to register', 'cm.cluster_file')
           with open(cluster_input_file, 'r') as f:
             for line in f:
               user_provided_clusters.append(line.strip())
