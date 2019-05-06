@@ -41,7 +41,7 @@ except ImportError:
     warnings.warn('cm_client failed to import', ImportWarning)
 
 
-class bcolors:
+class BColors:
   HEADER = '\033[95m'
   OKBLUE = '\033[94m'
   OKGREEN = '\033[92m'
@@ -1638,7 +1638,7 @@ class CookieThief:
 class ScriptPrerequisites:
   def satisfied(self):
     if 'root' != self.current_user():
-      print bcolors.FAIL + 'This script should be executed with the root user.' + bcolors.ENDC
+      print BColors.FAIL + 'This script should be executed with the root user.' + BColors.ENDC
       return False
     return True
 
@@ -1695,11 +1695,11 @@ class BaseRegistrationFlow(object):
     for response in responses:
       # For DP 1.3 the response object contains the code and message
       if 'status' in response and response.get('status') != 200 :
-        print('%s Failed! %s%s' % (bcolors.FAIL, response.get('message'), bcolors.ENDC))
+        print('%s Failed! %s%s' % (BColors.FAIL, response.get('message'), BColors.ENDC))
         return 1
       print('Cluster : %s is registered with id : %s '% (response.get('name'), response.get('id')))
     if responses:
-      print("%sSuccess! You are all set, your cluster%s is registered and ready to use.%s" % ('s' if len(responses)>1 else '', bcolors.OKBLUE, bcolors.ENDC))
+      print("%sSuccess! You are all set, your cluster%s is registered and ready to use.%s" % ('s' if len(responses)>1 else '', BColors.OKBLUE, BColors.ENDC))
     return 0
 
 """
@@ -1822,7 +1822,7 @@ class CMRegistrationFlow(BaseRegistrationFlow):
         return 1
       return self.handle_registration_response(response)
     else:
-      print bcolors.WARNING + 'No valid cluster found to be registered to DataPlane...' + bcolors.ENDC
+      print BColors.WARNING + 'No valid cluster found to be registered to DataPlane...' + BColors.ENDC
       return 0
     
 
@@ -1831,16 +1831,16 @@ class CMRegistrationFlow(BaseRegistrationFlow):
 """  
 if __name__ == '__main__':
   user = Memorized(User())
-  print bcolors.HEADER
+  print BColors.HEADER
   print '\nThis script will check to ensure that all necessary pre-requisites have been met and then register this cluster with DataPlane.'
   print '\nThis script works with Cluster manager - Ambari or Cloudera Manager.'
-  print bcolors.BOLD + '\nIf you are Working with HDP/HDF Clusters managed by Ambari : ' + bcolors.ENDC
-  print bcolors.HEADER
+  print BColors.BOLD + '\nIf you are Working with HDP/HDF Clusters managed by Ambari : ' + BColors.ENDC
+  print BColors.HEADER
   print '\nPlease ensure that your cluster has kerberos enabled, Ambari has been configured to use kerberos for authentication, and Knox is installed. Once those steps have been done, run this script from the Knox host and follow the steps and prompts to complete the cluster registration process.\n'
-  print bcolors.BOLD + '\nIf you are Working with CDH clusters managed by Cloudera Manager :' + bcolors.ENDC
-  print bcolors.HEADER
+  print BColors.BOLD + '\nIf you are Working with CDH clusters managed by Cloudera Manager :' + BColors.ENDC
+  print BColors.HEADER
   print '\nPlease ensure you are running from one of the hosts of the cluster\n'
-  print bcolors.ENDC
+  print BColors.ENDC
 
   if not ScriptPrerequisites().satisfied():
     sys.exit(1)
