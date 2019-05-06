@@ -41,6 +41,25 @@ except ImportError:
     warnings.warn('cm_client failed to import', ImportWarning)
 
 
+class bcolors:
+  HEADER = '\033[95m'
+  OKBLUE = '\033[94m'
+  OKGREEN = '\033[92m'
+  WARNING = '\033[93m'
+  FAIL = '\033[91m'
+  ENDC = '\033[0m'
+  BOLD = '\033[1m'
+  UNDERLINE = '\033[4m'
+  def disable(self):
+    self.HEADER = ''
+    self.OKBLUE = ''
+    self.OKGREEN = ''
+    self.WARNING = ''
+    self.FAIL = ''
+    self.ENDC = ''
+    self.BOLD = ''
+    self.UNDERLINE = ''
+
 class InputValidator:
   class Any:
     def valid(self, _): return True
@@ -1028,16 +1047,19 @@ class DataPlane:
       cluster_objects = filter(lambda c: c.cluster_name == cluster_name, cm.clusters)
       if cluster_objects:
         cluster_obj = cluster_objects[0]
-        print("Enter details for cluster : %s" % cluster_name)
+        cl_dc_name = user.input('Data Center Name', 'reg.dc.name')  
+        cl_description = user.input('Cluster Descriptions', 'reg.description')
+        print("All the clusters will be registered in Datacenter : %s with description : %s " % (cl_dc_name, cl_description))
+        print("User can modify the details later from Dataplane UI")
         registration_request.append({
-          'dcName': user.input('Data Center Name', 'reg.dc.name'),
+          'dcName': cl_dc_name,
           'managerUri': str(cm.base_url),
           'ambariUrl': '',
           'ambariIpAddress': '',
           'location': 6789,
           'isDatalake': self.has_selected_app('Data Steward Studio (DSS)'),
           'name': cluster_obj.cluster_name,
-          'description': user.input('Cluster Descriptions', 'reg.description'),
+          'description': cl_description,
           'state': 'TO_SYNC',
           'managerAddress': cm.base_url.ip_address(),
           'allowUntrusted': True,
@@ -1616,7 +1638,7 @@ class CookieThief:
 class ScriptPrerequisites:
   def satisfied(self):
     if 'root' != self.current_user():
-      print 'This script should be executed with the root user.'
+      print bcolors.FAIL + 'This script should be executed with the root user.' + bcolors.ENDC
       return False
     return True
 
@@ -1673,11 +1695,11 @@ class BaseRegistrationFlow(object):
     for response in responses:
       # For DP 1.3 the response object contains the code and message
       if 'status' in response and response.get('status') != 200 :
-        print('Failed! %s' % response.get('message'))
+        print('%s Failed! %s%s' % (bcolors.FAIL, response.get('message'), bcolors.ENDC))
         return 1
       print('Cluster : %s is registered with id : %s '% (response.get('name'), response.get('id')))
-    if response:
-      print('Success! You are all set, your cluster is registered and ready to use.')
+    if responses:
+      print("%sSuccess! You are all set, your cluster%s is registered and ready to use.%s" % ('s' if len(responses)>1 else '', bcolors.OKBLUE, bcolors.ENDC))
     return 0
 
 """
@@ -1776,9 +1798,11 @@ class CMRegistrationFlow(BaseRegistrationFlow):
     if cm.total_clusters == 1:
       clusters_to_register = clusters_not_registered
     elif cm.total_clusters > 1:
-      print "Clusters already registered in DataPlane : %s" % ','.join([cluster for cluster in clusters_registered])
-      print "Clusters which can be registered in DataPlane : %s" % ','.join([cluster for cluster in clusters_not_registered])
+      print "Clusters already registered in DataPlane : %s" % (','.join([cluster for cluster in clusters_registered]) or 'None')
+      print "Clusters which can be registered in DataPlane : %s" % (','.join([cluster for cluster in clusters_not_registered]) or 'None')
       if len(clusters_not_registered) > 0:
+        print "The user can register all or selective clusters in Dataplane."
+        print "For registering selective clusters the user needs to select 'n' and provide a text file containing cluster name/s (one per line) as input"
         install_all = user.decision('%s y/n' % "Register all", "cm.register_all", default=False)
         if install_all:
           clusters_to_register = clusters_not_registered
@@ -1798,7 +1822,7 @@ class CMRegistrationFlow(BaseRegistrationFlow):
         return 1
       return self.handle_registration_response(response)
     else:
-      print 'No valid cluster found to be registered to DataPlane...'
+      print bcolors.WARNING + 'No valid cluster found to be registered to DataPlane...' + bcolors.ENDC
       return 0
     
 
@@ -1807,12 +1831,16 @@ class CMRegistrationFlow(BaseRegistrationFlow):
 """  
 if __name__ == '__main__':
   user = Memorized(User())
+  print bcolors.HEADER
   print '\nThis script will check to ensure that all necessary pre-requisites have been met and then register this cluster with DataPlane.'
   print '\nThis script works with Cluster manager - Ambari or Cloudera Manager.'
-  print '\nIf you are Working with HDP/HDF Clusters managed by Ambari : '
+  print bcolors.BOLD + '\nIf you are Working with HDP/HDF Clusters managed by Ambari : ' + bcolors.ENDC
+  print bcolors.HEADER
   print '\nPlease ensure that your cluster has kerberos enabled, Ambari has been configured to use kerberos for authentication, and Knox is installed. Once those steps have been done, run this script from the Knox host and follow the steps and prompts to complete the cluster registration process.\n'
-  print '\nIf you are Working with CDH clusters managed by Cloudera Manager :'
+  print bcolors.BOLD + '\nIf you are Working with CDH clusters managed by Cloudera Manager :' + bcolors.ENDC
+  print bcolors.HEADER
   print '\nPlease ensure you are running from one of the hosts of the cluster\n'
+  print bcolors.ENDC
 
   if not ScriptPrerequisites().satisfied():
     sys.exit(1)
