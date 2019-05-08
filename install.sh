@@ -31,7 +31,7 @@ if [ -z ${SCRIPT_RELEASE+x} ] || [ -z "$SCRIPT_RELEASE" ]
 then 
     DOWNLOAD_URL=`curl -s https://api.github.com/repos/hortonworks/dp-cluster-reg/releases/latest |  grep tarball_url | cut -d '"' -f 4`
 else
-    DOWNLOAD_URL=`curl -s https://api.github.com/repos/hortonworks/dp-cluster-reg/releases/latest | grep ${SCRIPT_RELEASE} | grep tarball_url | cut -d '"' -f 4`
+    DOWNLOAD_URL=`curl -s https://api.github.com/repos/hortonworks/dp-cluster-reg/releases | grep ${SCRIPT_RELEASE} | grep tarball_url | cut -d '"' -f 4`
 fi
 
 if [ -z "$DOWNLOAD_URL" ]
