@@ -41,6 +41,25 @@ except ImportError:
     warnings.warn('cm_client failed to import', ImportWarning)
 
 
+class BColors:
+  HEADER = '\033[95m'
+  OKBLUE = '\033[94m'
+  OKGREEN = '\033[92m'
+  WARNING = '\033[93m'
+  FAIL = '\033[91m'
+  ENDC = '\033[0m'
+  BOLD = '\033[1m'
+  UNDERLINE = '\033[4m'
+  def disable(self):
+    self.HEADER = ''
+    self.OKBLUE = ''
+    self.OKGREEN = ''
+    self.WARNING = ''
+    self.FAIL = ''
+    self.ENDC = ''
+    self.BOLD = ''
+    self.UNDERLINE = ''
+
 class InputValidator:
   class Any:
     def valid(self, _): return True
@@ -1024,20 +1043,25 @@ class DataPlane:
 
   def registration_request_cm(self, cm, user, cluster_names):
     registration_request = []
+    cl_dc_name = user.input('Data Center Name', 'reg.dc.name')  
+    cl_description = user.input('Cluster Descriptions', 'reg.description')
+    print BColors.UNDERLINE
+    print("All the clusters will be registered in Datacenter : %s with description : %s " % (cl_dc_name, cl_description))
+    print("User can modify the details later from Dataplane UI")
+    print BColors.ENDC
     for cluster_name in cluster_names:
       cluster_objects = filter(lambda c: c.cluster_name == cluster_name, cm.clusters)
       if cluster_objects:
         cluster_obj = cluster_objects[0]
-        print("Enter details for cluster : %s" % cluster_name)
         registration_request.append({
-          'dcName': user.input('Data Center Name', 'reg.dc.name'),
+          'dcName': cl_dc_name,
           'managerUri': str(cm.base_url),
           'ambariUrl': '',
           'ambariIpAddress': '',
           'location': 6789,
           'isDatalake': self.has_selected_app('Data Steward Studio (DSS)'),
           'name': cluster_obj.cluster_name,
-          'description': user.input('Cluster Descriptions', 'reg.description'),
+          'description': cl_description,
           'state': 'TO_SYNC',
           'managerAddress': cm.base_url.ip_address(),
           'allowUntrusted': True,
@@ -1616,7 +1640,7 @@ class CookieThief:
 class ScriptPrerequisites:
   def satisfied(self):
     if 'root' != self.current_user():
-      print 'This script should be executed with the root user.'
+      print BColors.FAIL + 'This script should be executed with the root user.' + BColors.ENDC
       return False
     return True
 
@@ -1658,7 +1682,7 @@ class BaseRegistrationFlow(object):
     pass
 
   def get_dp_instance(self):
-    print 'Tell me about your DataPlane Instance'
+    print BColors.BOLD + 'Tell me about your DataPlane Instance' + BColors.ENDC
     return DataPlane(user.url_input('DataPlane URL', 'dp.url'), user.credential_input('DP Admin', 'dp.admin'),self.provider)
 
   def get_roles(self, cluster):
@@ -1673,11 +1697,14 @@ class BaseRegistrationFlow(object):
     for response in responses:
       # For DP 1.3 the response object contains the code and message
       if 'status' in response and response.get('status') != 200 :
-        print('Failed! %s' % response.get('message'))
+        print('%s Failed! %s%s' % (BColors.FAIL, response.get('message'), BColors.ENDC))
         return 1
       print('Cluster : %s is registered with id : %s '% (response.get('name'), response.get('id')))
-    if response:
-      print('Success! You are all set, your cluster is registered and ready to use.')
+    if responses:
+      print BColors.BOLD
+      print BColors.OKGREEN
+      print("Success! You are all set, your cluster%s is registered and ready to use." % ('s' if len(responses)>1 else ''))
+      print BColors.ENDC
     return 0
 
 """
@@ -1695,7 +1722,7 @@ class AmbariRegistrationFlow(BaseRegistrationFlow):
     self.dp_instance = self.get_dp_instance()
     
     dp = self.dp_instance
-    print "\nTell me about this cluster's Ambari Instance"
+    print BColors.BOLD + "\nTell me about this cluster's Ambari Instance" + BColors.BOLD
     ambari = Ambari(user.url_input('Ambari URL', 'ambari.url'), user.credential_input('Ambari admin', 'ambari.admin'))
     ambari.enable_trusted_proxy_for_ambari()
 
@@ -1757,7 +1784,7 @@ class CMRegistrationFlow(BaseRegistrationFlow):
     if not dp.version.startswith("1.3"):
       print("Registering CM Based cluster is not supported in DP %s" % dp.version)
       return 1
-    print "\nTell me about Cloudera Manager Instance"
+    print BColors.BOLD + "\nTell me about Cloudera Manager Instance" + BColors.ENDC
     cm = ClouderaManager(user.url_input('CM URL', 'cm.url'), user.credential_input('CM admin', 'cm.admin'))
 
     if not CMPrerequisites(cm).satisfied():
@@ -1772,13 +1799,17 @@ class CMRegistrationFlow(BaseRegistrationFlow):
     clusters_not_registered = [cluster.get("name") for cluster in clusters_resp_from_dp if cluster.get("isUnregistered")]
     clusters_to_register = []
 
-    print "Total clusters managed by Cloudera Manager Instance : %s" % cm.total_clusters
+    print BColors.BOLD + "Total clusters managed by Cloudera Manager Instance : %s" % cm.total_clusters + BColors.ENDC
     if cm.total_clusters == 1:
       clusters_to_register = clusters_not_registered
     elif cm.total_clusters > 1:
-      print "Clusters already registered in DataPlane : %s" % ','.join([cluster for cluster in clusters_registered])
-      print "Clusters which can be registered in DataPlane : %s" % ','.join([cluster for cluster in clusters_not_registered])
+      print BColors.BOLD + "Clusters already registered in DataPlane : %s" % (','.join([cluster for cluster in clusters_registered]) or 'None') + BColors.ENDC
+      print BColors.BOLD + "Clusters which can be registered in DataPlane : %s" % (','.join([cluster for cluster in clusters_not_registered]) or 'None') + BColors.ENDC
       if len(clusters_not_registered) > 0:
+        print BColors.UNDERLINE
+        print "The user can register all or selective clusters in Dataplane."
+        print "For registering selective clusters the user needs to select 'n' and provide a text file containing cluster name/s (one per line) as input"
+        print BColors.ENDC
         install_all = user.decision('%s y/n' % "Register all", "cm.register_all", default=False)
         if install_all:
           clusters_to_register = clusters_not_registered
@@ -1789,7 +1820,7 @@ class CMRegistrationFlow(BaseRegistrationFlow):
             for line in f:
               user_provided_clusters.append(line.strip())
           clusters_to_register = [ cluster for cluster in user_provided_clusters if cluster in clusters_not_registered]
-        print "\nClusters which will be registered in DataPlane : %s" % ','.join([cluster for cluster in clusters_to_register])
+        print BColors.BOLD + "\nClusters which will be registered in DataPlane : %s" % ','.join([cluster for cluster in clusters_to_register]) + BColors.ENDC
     
     if clusters_to_register:
       print 'Registering cluster to DataPlane...'
@@ -1798,7 +1829,7 @@ class CMRegistrationFlow(BaseRegistrationFlow):
         return 1
       return self.handle_registration_response(response)
     else:
-      print 'No valid cluster found to be registered to DataPlane...'
+      print BColors.BOLD + BColors.FAIL + 'No valid cluster found to be registered to DataPlane...' + BColors.ENDC
       return 0
     
 
@@ -1807,17 +1838,21 @@ class CMRegistrationFlow(BaseRegistrationFlow):
 """  
 if __name__ == '__main__':
   user = Memorized(User())
+  print BColors.HEADER
   print '\nThis script will check to ensure that all necessary pre-requisites have been met and then register this cluster with DataPlane.'
   print '\nThis script works with Cluster manager - Ambari or Cloudera Manager.'
-  print '\nIf you are Working with HDP/HDF Clusters managed by Ambari : '
+  print BColors.BOLD + '\nIf you are Working with HDP/HDF Clusters managed by Ambari : ' + BColors.ENDC
+  print BColors.HEADER
   print '\nPlease ensure that your cluster has kerberos enabled, Ambari has been configured to use kerberos for authentication, and Knox is installed. Once those steps have been done, run this script from the Knox host and follow the steps and prompts to complete the cluster registration process.\n'
-  print '\nIf you are Working with CDH clusters managed by Cloudera Manager :'
+  print BColors.BOLD + '\nIf you are Working with CDH clusters managed by Cloudera Manager :' + BColors.ENDC
+  print BColors.HEADER
   print '\nPlease ensure you are running from one of the hosts of the cluster\n'
+  print BColors.ENDC
 
   if not ScriptPrerequisites().satisfied():
     sys.exit(1)
   # Get the cluster type and execute the flow
-  print('Tell me about your Cluster type')
+  print BColors.BOLD + 'Tell me about your Cluster type' + BColors.ENDC
   flow_manager = FlowManager(user.cluster_type_input('Cluster Type ','cluster.type'))
   flow_manager.initialize()
   exit_code = flow_manager.execute()
