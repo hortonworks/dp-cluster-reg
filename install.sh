@@ -39,7 +39,7 @@ then
     echo "No valid release found to download.... exiting"
     exit 1
 else
-    echo "Trying to create directory ${TARGET_FOLDER}"
+    echo "Creating directory ${TARGET_FOLDER}"
     mkdir -p ${TARGET_FOLDER}
     echo "Downloading Release source code using curl"
     curl -L -o ${SOURCE_TAR_NAME} ${DOWNLOAD_URL}
