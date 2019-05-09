@@ -1,14 +1,6 @@
 # Hortonworks DataPlane Cluster Setup Utility
 Registering clusters managed by Ambari/Cloudera Manager in dataplane.
 
-**Installing**
-- download latest release
-
-```curl https://raw.githubusercontent.com/hortonworks/dp-cluster-reg/master/install.sh |sh```
-- download a release
-
-```export RELEASE=1.0.0-alpha;curl https://raw.githubusercontent.com/hortonworks/dp-cluster-reg/master/install.sh |sh```
-
 ## Getting started with HDP/HDF clusters managed by Ambari
 This utility helps configure your cluster with Knox Trusted Proxy support, establishes the trust
 relationship between DataPlane and the cluster, and registers the cluster with DataPlane.
@@ -20,6 +12,18 @@ relationship between DataPlane and the cluster, and registers the cluster with D
 - Ambari configured for Kerberos Authentication
 - DataPlane Cluster Agents (for the DataPlane Apps you plan to use) should be installed & configured in the cluster
 
+**Installing**
+- download latest release
+
+```bash 
+curl https://raw.githubusercontent.com/hortonworks/dp-cluster-reg/master/install.sh |sh
+```
+
+- download a release
+
+```
+export RELEASE=<release-name>;curl https://raw.githubusercontent.com/hortonworks/dp-cluster-reg/master/install.sh |sh
+```
    
 **Running the Script**
 
@@ -37,11 +41,33 @@ This utility helps in registering a Cloudera Manager managed CDH cluster in Data
 - A Cloudera Manager managed cluster
 
 **Installing**
-- download the release on one of the cluster hosts.
+
+### download release and install dependencies manually
+
+- latest release 
+```
+curl https://raw.githubusercontent.com/hortonworks/dp-cluster-reg/master/install.sh |sh
+```
+
+- given release
+```
+export RELEASE=<release>;curl https://raw.githubusercontent.com/hortonworks/dp-cluster-reg/master/install.sh |sh
+```
+  
 - install dependencies
- ```bash
- pip install -r requirements.txt
- ``` 
+```
+pip install -r requirements.txt
+``` 
+### download release and install dependencies automatically
+- latest release
+```
+export CM=true;curl https://raw.githubusercontent.com/hortonworks/dp-cluster-reg/master/install.sh |sh
+```
+
+- given release
+```
+export CM=true;export RELEASE=<release>;curl https://raw.githubusercontent.com/hortonworks/dp-cluster-reg/master/install.sh |sh
+```
 
  **Running the Script**
 ```
