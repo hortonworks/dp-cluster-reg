@@ -32,10 +32,10 @@ if [ "$CM" = true ]
 then
     if [ "$VIRTUAL_ENV" != "" ]
     then
-    echo "Installing cm_client in virtualenv $VIRTUAL_ENV"
+        echo "Installing cm_client in virtualenv $VIRTUAL_ENV"
     elif [ "$VIRTUAL_ENV" == "" ]
     then
-        echo "Installing cm_client in globl scope"
+        echo "Installing cm_client in global scope"
     fi
     pip install cm_client
     status=$?
@@ -43,7 +43,7 @@ then
     then
         echo "Installation successful"
     else
-        echo "Installation failed. resolve installation isuue and re-run the script"
+        echo "Installation of cm_client module required for running the cluster registration script failed. Please install this manually and re-run the script"
         exit $status        
     fi 
 fi
