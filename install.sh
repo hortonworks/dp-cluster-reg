@@ -28,21 +28,15 @@ else
     exit 1
 fi
 
-if [ "$CM" = true ] && [ "$VIRTUAL_ENV" != "" ]
+if [ "$CM" = true ]
 then
-    echo "Installing cm_client in virtualenv $VIRTUAL_ENV"
-    pip install cm_client1
-    status=$?
-    if [ $status -eq 0 ]
+    if [ "$VIRTUAL_ENV" != "" ]
     then
-        echo "Installation successful"
-    else
-        echo "Installation failed. resolve installation isuue and re-run the script"
-        exit $status        
+    echo "Installing cm_client in virtualenv $VIRTUAL_ENV"
+    elif [ "$VIRTUAL_ENV" == "" ]
+    then
+        echo "Installing cm_client in globl scope"
     fi
-elif [ "$CM" = true ] && [ "$VIRTUAL_ENV" == "" ]
-then
-    echo "Installing cm_client in globl scope"
     pip install cm_client
     status=$?
     if [ $status -eq 0 ]
