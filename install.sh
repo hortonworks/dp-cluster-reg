@@ -41,7 +41,7 @@ then
 else
     echo "Creating directory ${TARGET_FOLDER}"
     mkdir -p ${TARGET_FOLDER}
-    echo "Downloading Release source code using curl"
+    echo "Downloading Release source code from ${DOWNLOAD_URL} using curl"
     curl -L -o ${SOURCE_TAR_NAME} ${DOWNLOAD_URL}
     echo "Extracting the archive into ${TARGET_FOLDER}"
     tar -xvzf ${SOURCE_TAR_NAME} -C ${TARGET_FOLDER} --strip-components 1
