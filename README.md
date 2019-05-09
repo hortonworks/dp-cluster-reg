@@ -1,6 +1,15 @@
 # Hortonworks DataPlane Cluster Setup Utility
 Registering clusters managed by Ambari/Cloudera Manager in dataplane.
 
+**Installing**
+- download latest release
+
+```curl https://raw.githubusercontent.com/hortonworks/dp-cluster-reg/one_click_install/install.sh |sh```
+- download a release
+
+```export SCRIPT_RELEASE=1.0.0-alpha;curl https://raw.githubusercontent.com/hortonworks/dp-cluster-reg/one_click_install/install.sh |sh```
+
+
 ## Getting started with HDP/HDF clusters managed by Ambari
 This utility helps configure your cluster with Knox Trusted Proxy support, establishes the trust
 relationship between DataPlane and the cluster, and registers the cluster with DataPlane.
@@ -12,8 +21,6 @@ relationship between DataPlane and the cluster, and registers the cluster with D
 - Ambari configured for Kerberos Authentication
 - DataPlane Cluster Agents (for the DataPlane Apps you plan to use) should be installed & configured in the cluster
 
-**Installing**
-- download the release on one of the knox host.
    
 **Running the Script**
 
