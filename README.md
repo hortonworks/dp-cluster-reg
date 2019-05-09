@@ -74,3 +74,7 @@ export CM=true;export RELEASE=<release>;curl https://raw.githubusercontent.com/h
 python dp-cluster-setup-utility.py
 ```
 
+**unset export parameters**
+```
+unset CM;unset RELEASE
+```
