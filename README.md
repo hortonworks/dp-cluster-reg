@@ -4,11 +4,10 @@ Registering clusters managed by Ambari/Cloudera Manager in dataplane.
 **Installing**
 - download latest release
 
-```curl https://raw.githubusercontent.com/hortonworks/dp-cluster-reg/one_click_install/install.sh |sh```
+```curl https://raw.githubusercontent.com/hortonworks/dp-cluster-reg/master/install.sh |sh```
 - download a release
 
-```export SCRIPT_RELEASE=1.0.0-alpha;curl https://raw.githubusercontent.com/hortonworks/dp-cluster-reg/one_click_install/install.sh |sh```
-
+```export SCRIPT_RELEASE=1.0.0-alpha;curl https://raw.githubusercontent.com/hortonworks/dp-cluster-reg/master/install.sh |sh```
 
 ## Getting started with HDP/HDF clusters managed by Ambari
 This utility helps configure your cluster with Knox Trusted Proxy support, establishes the trust
