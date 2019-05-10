@@ -13,7 +13,17 @@ relationship between DataPlane and the cluster, and registers the cluster with D
 - DataPlane Cluster Agents (for the DataPlane Apps you plan to use) should be installed & configured in the cluster
 
 **Installing**
-- download the release on one of the knox host.
+- download latest release
+
+```bash 
+curl https://raw.githubusercontent.com/hortonworks/dp-cluster-reg/master/install.sh |sh
+```
+
+- download a release
+
+```
+export RELEASE=<release-name>;curl https://raw.githubusercontent.com/hortonworks/dp-cluster-reg/master/install.sh |sh
+```
    
 **Running the Script**
 
@@ -31,14 +41,40 @@ This utility helps in registering a Cloudera Manager managed CDH cluster in Data
 - A Cloudera Manager managed cluster
 
 **Installing**
-- download the release on one of the cluster hosts.
+
+### download release and install dependencies manually
+
+- latest release 
+```
+curl https://raw.githubusercontent.com/hortonworks/dp-cluster-reg/master/install.sh |sh
+```
+
+- given release
+```
+export RELEASE=<release>;curl https://raw.githubusercontent.com/hortonworks/dp-cluster-reg/master/install.sh |sh
+```
+  
 - install dependencies
- ```bash
- pip install -r requirements.txt
- ``` 
+```
+pip install -r requirements.txt
+``` 
+### download release and install dependencies automatically
+- latest release
+```
+export CM=true;curl https://raw.githubusercontent.com/hortonworks/dp-cluster-reg/master/install.sh |sh
+```
+
+- given release
+```
+export CM=true;export RELEASE=<release>;curl https://raw.githubusercontent.com/hortonworks/dp-cluster-reg/master/install.sh |sh
+```
 
  **Running the Script**
 ```
 python dp-cluster-setup-utility.py
 ```
 
+**unset export parameters**
+```
+unset CM;unset RELEASE
+```
