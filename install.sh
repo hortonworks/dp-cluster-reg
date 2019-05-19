@@ -35,7 +35,7 @@ then
         echo "The script will install cm_client in virtualenv $VIRTUAL_ENV"
     elif [ "$VIRTUAL_ENV" == "" ]
     then
-        echo "Installing cm_client in global scope"
+        echo "The script will install  cm_client in global scope"
     fi
     while true; do
         read -p "Do you wish to install cm_client  (y/n)?" choice
