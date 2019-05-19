@@ -32,20 +32,28 @@ if [ "$CM" = true ]
 then
     if [ "$VIRTUAL_ENV" != "" ]
     then
-        echo "Installing cm_client in virtualenv $VIRTUAL_ENV"
+        echo "The script will install cm_client in virtualenv $VIRTUAL_ENV"
     elif [ "$VIRTUAL_ENV" == "" ]
     then
         echo "Installing cm_client in global scope"
     fi
-    pip install cm_client
-    status=$?
-    if [ $status -eq 0 ]
-    then
-        echo "Installation successful"
-    else
-        echo "Installation of cm_client module required for running the cluster registration script failed. Please install this manually and re-run the script"
-        exit $status        
-    fi 
+    while true; do
+        read -p "Do you wish to install cm_client  (y/n)?" choice
+        case "$choice" in
+            y|Y ) 
+            pip install cm_client
+            status=$?
+            if [ $status -eq 0 ]
+            then
+                echo "Installation successful"
+            else
+                echo "Installation of cm_client module required for running the cluster registration script failed. Please install this manually and re-run the script"
+                exit $status        
+            fi; break;;
+            n|N ) exit;;
+            * ) echo "Please answer yes or no.";;
+        esac
+    done
 fi
 
 if [ -z ${RELEASE+x} ] || [ -z "$RELEASE" ]
