@@ -50,7 +50,10 @@ then
                 echo "Installation of cm_client module required for running the cluster registration script failed. Please install this manually and re-run the script"
                 exit $status        
             fi; break;;
-            n|N ) exit;;
+            n|N )
+                echo "\"cm_client\" module is required to work with Cloudera Manager based clusters."
+                echo "If you don't wish to work with those clusters, re-run the installation script unsetting \"CM\" variable." 
+                exit;;
             * ) echo "Please answer yes or no.";;
         esac
     done
