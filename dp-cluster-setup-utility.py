@@ -1084,6 +1084,16 @@ class DataPlane:
     }
 
   def registration_request_cm(self, cm, knox, user, cluster_names):
+
+    manager_uri = str(cm.base_url)
+    knox_url = ""
+    knox_enabled = False
+    behind_gateway = False
+    if knox:
+      manager_uri = str(knox.base_url / 'gateway/dp-proxy/cm-api')
+      knox_url = str(knox.base_url / 'gateway')
+      knox_enabled = True
+      behind_gateway = True
     registration_request = []
     cl_dc_name = user.input('Data Center Name', 'reg.dc.name')  
     cl_description = user.input('Cluster Descriptions', 'reg.description')
@@ -1097,7 +1107,7 @@ class DataPlane:
         cluster_obj = cluster_objects[0]
         registration_request.append({
           'dcName': cl_dc_name,
-          'managerUri': str(cm.base_url),
+          'managerUri': manager_uri,
           'ambariUrl': '',
           'ambariIpAddress': '',
           'location': 6789,
@@ -1107,8 +1117,9 @@ class DataPlane:
           'state': 'TO_SYNC',
           'managerAddress': cm.base_url.ip_address(),
           'allowUntrusted': True,
-          'behindGateway': False,
-          'knoxEnabled': False,
+          'behindGateway': behind_gateway,
+          'knoxEnabled': knox_enabled,
+          'knoxUrl': knox_url,
           'managerType': "cloudera-manager",
           'clusterType': cluster_obj.type,
           'properties': {'tags': []}
@@ -1166,21 +1177,25 @@ class DataPlane:
       return True
     return False
 
-  def check_cm(self, cm):
+  def check_cm(self, cm, knox):
     print 'Checking communication between DataPlane and Cloudera Manager ...'
+    manager_uri = str(cm.base_url)
+    behind_gateway = False
+    if knox:
+      manager_uri = str(knox.base_url / 'gateway/dp-proxy/cm-api')
+      behind_gateway = False
     code, resp = self.client.post(
       'api/cluster-managers?action=check',
       data={
 	        'managerType': 'cloudera-manager',
-        	'managerUri': str(cm.base_url),
+        	'managerUri': manager_uri,
 	        'allowUntrusted': True,
 	        'withSingleSignOn': False,
-	        'behindGateway': False
+	        'behindGateway': behind_gateway
       },
       headers=[Header.content_type('application/json'), self.token_cookies()]
     )
     return resp
-
 
 class TokenTopology:
   TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
@@ -1695,20 +1710,23 @@ class CMPrerequisites(BasePrerequisites):
       if not self.stack_supported(cluster):
         print('The stack version (%s) is not supported for %s. Supported stacks are: CDH-5.17/CDH-6.1  or newer.' % (cluster.installed_stack(), cluster.cluster_name))
         return False
-    if not self.cm.kerberos_enabled():
-      print 'Kerberos is not enabled for Ambari. Please enable it by running: ambari-server setup-kerberos from your Ambari Server host.'
-      return False
-    if not self.cm.knox_rules_defined():
-      print 'Some of knox properties  are not found in Cloudera Manager Configuration'
-      print 'Set all of [PROXYUSER_KNOX_GROUPS, PROXYUSER_KNOX_HOSTS,PROXYUSER_KNOX_PRINCIPAL, PROXYUSER_KNOX_USERS]'
-      print 'and restart cloudera manager server'
+    if self.cm.total_clusters == 1:
+      # knox related checks are only applicable when number of cluster managed by CM = 1  
+      if not self.cm.kerberos_enabled():
+        print 'Kerberos is not enabled for Ambari. Please enable it by running: ambari-server setup-kerberos from your Ambari Server host.'
+        return False
+      if not self.cm.knox_rules_defined():
+        print 'Some of knox properties  are not found in Cloudera Manager Configuration'
+        print 'Set all of [PROXYUSER_KNOX_GROUPS, PROXYUSER_KNOX_HOSTS,PROXYUSER_KNOX_PRINCIPAL, PROXYUSER_KNOX_USERS]'
+        print 'and restart cloudera manager server'
+        return False
     return True
 
   def stack_supported(self, cluster):
     stack = cluster.installed_stack()
     check_version = False
     (major,minor) = stack.version.split('.')[:2]
-    if (major == '5' and int(minor) >= 17) or (major == '6' and int(minor) >= 1):
+    if (major == '5' and int(minor) >= 17) or (major == '6' and int(minor) >= 0):
       check_version = True
     return stack.name == 'CDH' and check_version
 
@@ -1814,7 +1832,7 @@ class AmbariRegistrationFlow(BaseRegistrationFlow):
     self.dp_instance = self.get_dp_instance()
     
     dp = self.dp_instance
-    print BColors.BOLD + "\nTell me about this cluster's Ambari Instance" + BColors.BOLD
+    print BColors.BOLD + "\nTell me about this cluster's Ambari Instance" + BColors.ENDC
     ambari = Ambari(user.url_input('Ambari URL', 'ambari.url'), user.credential_input('Ambari admin', 'ambari.admin'))
     ambari.enable_trusted_proxy_for_ambari()
 
@@ -1882,14 +1900,30 @@ class CMRegistrationFlow(BaseRegistrationFlow):
     if not CMPrerequisites(cm).satisfied():
       return 1
     
-    clusters_resp_from_dp = dp.check_cm(cm)
+    #
+    # If number of clusters managed by CM = 1 , The script will execute knox based flow
+    #
+    knox = None
+    clusters_to_register = []
+    clusters_resp_from_dp = []
+    if cm.total_clusters == 1:
+      active_cluster  = cm.clusters[0]
+      knox = KnoxAdminApi(user.url_input('Knox Admin URL', 'knox_admin.url', default=str(active_cluster.knox_url())), user.credential_input('Knox Admin User', 'knox_admin.user'))
+      topology_util = CMTopologyUtil(cm, [])
+      topologies_to_deploy = [TokenTopology(dp.public_key()), DpProxyTopologyForCM(cm, [], topology_util)]
+      for topology in topologies_to_deploy:
+        print 'Deploying Knox topology:', topology.name
+        topology.deploy(knox)
+      # communication check for
+      clusters_resp_from_dp = dp.check_cm(cm, knox)
+    elif cm.total_clusters > 1:
+      clusters_resp_from_dp = dp.check_cm(cm, None)
 
     if not clusters_resp_from_dp:
       return 1
     
     clusters_registered = [cluster.get("name") for cluster in clusters_resp_from_dp if not cluster.get("isUnregistered")]
     clusters_not_registered = [cluster.get("name") for cluster in clusters_resp_from_dp if cluster.get("isUnregistered")]
-    clusters_to_register = []
 
     print BColors.BOLD + "Total clusters managed by Cloudera Manager Instance : %s" % cm.total_clusters + BColors.ENDC
     if cm.total_clusters == 1:
@@ -1915,20 +1949,6 @@ class CMRegistrationFlow(BaseRegistrationFlow):
         print BColors.BOLD + "\nClusters which will be registered in DataPlane : %s" % ','.join([cluster for cluster in clusters_to_register]) + BColors.ENDC
     
     if clusters_to_register:
-      #
-      # There can be 2 cases 
-      # (1) The Cloudera manager is managing one cluster : We will deploy the knox topologies
-      # (2) The Cloudera manager is managing multiple cluster : We will deploy multiple clusters
-      #
-      knox = None
-      if cm.total_clusters == 1 :
-        active_cluster  = cm.clusters[0]
-        knox = KnoxAdminApi(user.url_input('Knox Admin URL', 'knox_admin.url', default=str(active_cluster.knox_url())), user.credential_input('Knox Admin User', 'knox_admin.user'))
-        topology_util = CMTopologyUtil(cm, [])
-        topologies_to_deploy = [TokenTopology(dp.public_key()), DpProxyTopologyForCM(cm, [], topology_util)]
-        for topology in topologies_to_deploy:
-          print 'Deploying Knox topology:', topology.name
-          topology.deploy(knox)
       print 'Registering cluster to DataPlane...'
       response = dp.register_cm(cm, knox, user, clusters_to_register)
       if not response:
