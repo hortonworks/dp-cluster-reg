@@ -1726,7 +1726,7 @@ class CMPrerequisites(BasePrerequisites):
     stack = cluster.installed_stack()
     check_version = False
     (major,minor) = stack.version.split('.')[:2]
-    if (major == '5' and int(minor) >= 17) or (major == '6' and int(minor) >= 0):
+    if (major == '5' and int(minor) >= 17) or (major == '6' and int(minor) >= 1):
       check_version = True
     return stack.name == 'CDH' and check_version
 
