@@ -61,12 +61,15 @@ pip install -r requirements.txt
 ### download release and install dependencies automatically
 - latest release
 ```
-export CM=true;curl https://raw.githubusercontent.com/hortonworks/dp-cluster-reg/master/install.sh |sh
+curl -O  https://raw.githubusercontent.com/hortonworks/dp-cluster-reg/master/install.sh
+CM=true sh install.sh
+
 ```
 
 - given release
 ```
-export CM=true;export RELEASE=<release>;curl https://raw.githubusercontent.com/hortonworks/dp-cluster-reg/master/install.sh |sh
+curl -O  https://raw.githubusercontent.com/hortonworks/dp-cluster-reg/master/install.sh
+CM=true RELEASE=1.0.0-alpha sh install.sh
 ```
 
  **Running the Script**
