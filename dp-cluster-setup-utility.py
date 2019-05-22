@@ -33,7 +33,6 @@ from shutil import copyfile
 import pprint
 pp = pprint.PrettyPrinter(indent=4)
 
-
 try:
     import cm_client
     from cm_client.rest import ApiException
@@ -289,6 +288,7 @@ class CMRestClient:
   def _get_basic_client(self, api_url, cred):
     cm_client.configuration.username = cred.user
     cm_client.configuration.password = cred.password
+    cm_client.configuration.verify_ssl = False
     return cm_client.ApiClient(str(api_url))
 
   def cluster_api_instance(self):
@@ -311,16 +311,19 @@ class CMRestClient:
 
   def parcels_resource_api(self):
     return cm_client.ParcelsResourceApi(self.client)
+  
+  def host_resource_api(self):
+    return cm_client.HostsResourceApi(self.client)
 
 class RestClient:
   @classmethod
-  def forJsonApi(cls, url, credentials, headers=[], ssl_context=PermissiveSslContext()):
+  def forJsonApi(cls, url, credentials, headers=[], ssl_context=PermissiveSslContext(), request_transformer=json.dumps):
     return cls(
       url,
       credentials,
       headers=headers,
       ssl_context=ssl_context,
-      request_transformer=json.dumps,
+      request_transformer=request_transformer,
       response_transformer=JsonTransformer())
 
   def __init__(self,
@@ -412,6 +415,7 @@ class ServiceComponent:
 
   def __str__(self):
     return self.name
+
 class CMServiceComponent:
   def __init__(self, client, a_dict):
     self.client = client
@@ -420,7 +424,18 @@ class CMServiceComponent:
     self.component = a_dict
 
   def host_names(self):
-    return [each.hostname for each in self.component.host_ref]
+    host_id = self.component.host_ref.host_id
+    host = self.client.host_resource_api().read_host(host_id)
+    return [host.hostname]
+  
+  def configs(self):
+    configs = self.client.roles_api_instance().read_config(
+                                                  self.component.service_ref.cluster_name,
+                                                  self.component.role_config_group_ref.role_config_group_name,
+                                                  self.component.service_ref.service_name,
+                                                  view="FULL"
+                                                  )
+    return [CMConfig(config) for config in configs.items]
 
   def __str__(self):
     return self.name
@@ -442,6 +457,7 @@ class Service:
 
   def __str__(self):
     return self.name
+
 class CMService:
   def __init__(self, client, a_dict, cluster_name):
     self.client = client
@@ -452,11 +468,11 @@ class CMService:
     self.display_name = self.service.display_name
 
   def components(self):
-    roles = self.client.role_resource_instance().read_roles(self.cluster_name, self.name,filter="filter",view='summary')
+    roles = self.client.role_resource_instance().read_roles(self.cluster_name, self.name,filter="",view='summary')
     return [CMServiceComponent(self.client, role) for role in roles.items]
 
   def component(self, component_name):
-    matches = [each for each in self.components() if each.name == component_name]
+    matches = [each for each in self.components() if each.type == component_name]
     return matches[0] if matches else None
 
   def component_type(self, component_type):
@@ -673,7 +689,21 @@ class ClouderaManager(BaseClusterManager):
     pass
 
   def kerberos_enabled(self):
-    pass
+    resp = self.client.cm_api_instance().get_kerberos_info()
+    if resp.kerberized:
+      return True
+    return False
+  
+  def knox_rules_defined(self):
+    props_to_check = ['PROXYUSER_KNOX_GROUPS', 
+                      'PROXYUSER_KNOX_HOSTS',
+                      'PROXYUSER_KNOX_PRINCIPAL',
+                      'PROXYUSER_KNOX_USERS']
+    resp = self.client.cm_api_instance().get_config()
+    props = [data.name for data in resp.items]
+    if all(elem in props for elem in props_to_check):
+      return True
+    return False
 
 
 class BaseCluster(object):
@@ -768,7 +798,7 @@ class CMCluster(BaseCluster):
   def service(self, service_name):
     try:
       data = self.client.services_api_instance().read_service(self.cluster_name, service_name)
-      return Service(self.client, data)
+      return CMService(self.client, data, self.cluster_name)
     except ApiException as e:
       raise e
 
@@ -783,7 +813,7 @@ class CMCluster(BaseCluster):
     stack_ver = self.version
     return Stack('CDH', stack_ver, self.client)
   #
-  # TODO: currently service name and service types in CM BAsed cluster differ.
+  # TODO: currently service name and service types in CM Based cluster differ.
   #
   def service_names(self):
     return [each.type for each in self.services()]
@@ -801,13 +831,16 @@ class CMCluster(BaseCluster):
     pass
 
   def knox_url(self):
-    pass
+    return Url.base('https', self.knox_host(), self.knox_port())
 
   def knox_host(self):
-    pass
+    return self.service('knox').component('KNOX_GATEWAY').host_names()[0]
 
   def knox_port(self):
-    pass
+    config =  filter(lambda c: c.name == 'gateway_port', self.service('knox').component('KNOX_GATEWAY').configs())
+    if config[0].value:
+      return config[0].value
+    return config[0].default
 
   def knox_user(self):
     pass
@@ -839,6 +872,15 @@ class Config:
   def __str__(self):
     return json.dumps(self.config)
 
+class CMConfig:
+  def __init__(self, a_dict):
+    self.name = a_dict.name
+    self.value = a_dict.value
+    self.default = a_dict.default
+  
+  def __str__(self):
+    return self.name
+  
 class Configs:
   def __init__(self, client, config_list, config_type):
     self.client = client
@@ -999,13 +1041,13 @@ class DataPlane:
       return resp
     return [resp]
   
-  def register_cm(self, cm, user, clusters):
+  def register_cm(self, cm, knox, user, clusters):
     if not self.version.startswith("1.3"):
       print("Registering CM Based cluster is not supported in DP %s" % self.version)
       return []
     _, resp = self.client.post(
       'api/lakes',
-      data=self.registration_request_cm(cm, user, clusters),
+      data=self.registration_request_cm(cm, knox, user, clusters),
       headers=[Header.content_type('application/json'), self.token_cookies()]
     )
     return resp
@@ -1041,7 +1083,7 @@ class DataPlane:
       'managerType': "ambari",
     }
 
-  def registration_request_cm(self, cm, user, cluster_names):
+  def registration_request_cm(self, cm, knox, user, cluster_names):
     registration_request = []
     cl_dc_name = user.input('Data Center Name', 'reg.dc.name')  
     cl_description = user.input('Cluster Descriptions', 'reg.description')
@@ -1131,7 +1173,7 @@ class DataPlane:
       data={
 	        'managerType': 'cloudera-manager',
         	'managerUri': str(cm.base_url),
-	        'allowUntrusted': False,
+	        'allowUntrusted': True,
 	        'withSingleSignOn': False,
 	        'behindGateway': False
       },
@@ -1229,6 +1271,7 @@ class AmbariTopologyUtil(TopologyUtil):
   def __init__(self, ambari, role_names):
     self.ambari = ambari
     self.role_names = role_names
+  
   def ranger_url(self):
     host = self.host_name('RANGER', 'RANGER_ADMIN')
     if self.ambari.cluster.config_property('ranger-admin-site', 'ranger.service.https.attrib.ssl.enabled') == 'true':
@@ -1270,6 +1313,14 @@ class AmbariTopologyUtil(TopologyUtil):
       port = self.ambari.cluster.config_property('streams-messaging-manager-common', 'port')
       return 'http://%s:%s' % (host, port)
 
+  def cluster_manager(self):
+    version = "0.2.2.0"
+    ambari_protocol = self.ambari.base_url.protocol()
+    ambari_host = self.ambari.internal_host
+    ambari_port = self.ambari.base_url.port()
+    url = "%s://%s:%s" % (ambari_protocol, ambari_host, ambari_port)
+    return self.role('AMBARI', url, version)
+
   def host_name(self, service_name, component_name):
     return self.ambari.cluster.service(service_name).component(component_name).host_names()[0]
 
@@ -1296,7 +1347,11 @@ class CMTopologyUtil(TopologyUtil):
   def host_name(self, service_name, component_name):
     pass
 
-
+  def cluster_manager(self):
+    protocol = self.cm.base_url.protocol()
+    netloc = self.cm.base_url.netloc()
+    url = "%s://%s" % (protocol, netloc)
+    return self.role('CM-API', url)
 
 class DpProxyTopology:
   TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
@@ -1321,11 +1376,7 @@ class DpProxyTopology:
            <enabled>true</enabled>
         </provider>
      </gateway>
-     <service>
-        <role>AMBARI</role>
-        <version>0.2.2.0</version>
-        <url>{ambari_protocol}://{ambari_host}:{ambari_port}</url>
-     </service>
+     {cluster_manager}
      {ranger}
      {atlas_api}
      {dpprofiler}
@@ -1333,6 +1384,7 @@ class DpProxyTopology:
      {streamsmsgmgr}
   </topology>"""
 
+class DpProxyTopologyForAmbari(DpProxyTopology):
   def __init__(self, ambari, role_names, topology_util, name='dp-proxy'):
     self.ambari = ambari
     self.role_names = role_names
@@ -1344,9 +1396,7 @@ class DpProxyTopology:
     template = DpProxyTopology.TEMPLATE.format(
       knox_url = str(knox.base_url),
       timestamp = int(time.time()),
-      ambari_protocol = self.ambari.base_url.protocol(),
-      ambari_host = self.ambari.internal_host,
-      ambari_port = self.ambari.base_url.port(),
+      cluster_manager = self.topology_util.cluster_manager(),
       ranger = self.topology_util.ranger(),
       atlas_api = self.topology_util.atlas_api(),
       dpprofiler = self.topology_util.dpprofiler(),
@@ -1364,6 +1414,27 @@ class DpProxyTopology:
     if stack.name == 'HDF':
       stack_version = self.ambari.current_stack_version()
       knox.update_ambari_service_def(stack_version)
+
+class DpProxyTopologyForCM(DpProxyTopology):
+  def __init__(self, cm, role_names, topology_util, name='dp-proxy'):
+    self.cm = cm
+    self.role_names = role_names
+    self.name = name
+    self.topology_util = topology_util
+
+  def deploy(self, knox):
+    template = DpProxyTopology.TEMPLATE.format(
+      knox_url = str(knox.base_url),
+      timestamp = int(time.time()),
+      cluster_manager = self.topology_util.cluster_manager(),
+      ranger = self.topology_util.ranger(),
+      atlas_api = self.topology_util.atlas_api(),
+      dpprofiler = self.topology_util.dpprofiler(),
+      beacon = self.topology_util.beacon(),
+      streamsmsgmgr = self.topology_util.streamsmsgmgr(),
+    )
+    return knox.add_topology(self.name, template)
+
 
 
 class BeaconProxyTopology:
@@ -1545,6 +1616,20 @@ class Knox:
     self._chown_to_knox(service_dir)
     self._chown_to_knox(os.path.dirname(service_dir))
 
+class KnoxAdminApi:
+  def __init__(self, url, credentials):
+    self.base_url = url
+    self.credentials = credentials
+    self.client = RestClient.forJsonApi(self.base_url, credentials, request_transformer=str)  
+
+  def add_topology(self, topology, xml_data):
+    topology_api = self.base_url / 'gateway/admin/api/v1/topologies' / topology
+    code, resp = self.client.put(topology_api, xml_data, headers=[Header.content_type('application/xml'), Header.accept_json()])
+    if code != 200:
+      raise UnexpectedHttpCode('Unexpected HTTP code: %d url: %s response: %s' % (code, topology_api, resp))
+    elif code == 200:
+      print 'Successfully deployed topology: %s' % (topology)
+
 class BasePrerequisites(object):
 
   def running_on_knox_host(self):
@@ -1608,8 +1693,15 @@ class CMPrerequisites(BasePrerequisites):
   def satisfied(self):
     for  cluster in self.cm.clusters:
       if not self.stack_supported(cluster):
-        print('The stack version (%s) is not supported for %s. Supported stacks are: CDH-5.17  or newer.' % (cluster.installed_stack(), cluster.cluster_name))
+        print('The stack version (%s) is not supported for %s. Supported stacks are: CDH-5.17/CDH-6.1  or newer.' % (cluster.installed_stack(), cluster.cluster_name))
         return False
+    if not self.cm.kerberos_enabled():
+      print 'Kerberos is not enabled for Ambari. Please enable it by running: ambari-server setup-kerberos from your Ambari Server host.'
+      return False
+    if not self.cm.knox_rules_defined():
+      print 'Some of knox properties  are not found in Cloudera Manager Configuration'
+      print 'Set all of [PROXYUSER_KNOX_GROUPS, PROXYUSER_KNOX_HOSTS,PROXYUSER_KNOX_PRINCIPAL, PROXYUSER_KNOX_USERS]'
+      print 'and restart cloudera manager server'
     return True
 
   def stack_supported(self, cluster):
@@ -1823,8 +1915,22 @@ class CMRegistrationFlow(BaseRegistrationFlow):
         print BColors.BOLD + "\nClusters which will be registered in DataPlane : %s" % ','.join([cluster for cluster in clusters_to_register]) + BColors.ENDC
     
     if clusters_to_register:
+      #
+      # There can be 2 cases 
+      # (1) The Cloudera manager is managing one cluster : We will deploy the knox topologies
+      # (2) The Cloudera manager is managing multiple cluster : We will deploy multiple clusters
+      #
+      knox = None
+      if cm.total_clusters == 1 :
+        active_cluster  = cm.clusters[0]
+        knox = KnoxAdminApi(user.url_input('Knox Admin URL', 'knox_admin.url', default=str(active_cluster.knox_url())), user.credential_input('Knox Admin User', 'knox_admin.user'))
+        topology_util = CMTopologyUtil(cm, [])
+        topologies_to_deploy = [TokenTopology(dp.public_key()), DpProxyTopologyForCM(cm, [], topology_util)]
+        for topology in topologies_to_deploy:
+          print 'Deploying Knox topology:', topology.name
+          topology.deploy(knox)
       print 'Registering cluster to DataPlane...'
-      response = dp.register_cm(cm, user, clusters_to_register)
+      response = dp.register_cm(cm, knox, user, clusters_to_register)
       if not response:
         return 1
       return self.handle_registration_response(response)
