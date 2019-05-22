@@ -69,7 +69,7 @@ CM=true sh install.sh
 - given release
 ```
 curl -O  https://raw.githubusercontent.com/hortonworks/dp-cluster-reg/master/install.sh
-CM=true RELEASE=1.0.0-alpha sh install.sh
+CM=true RELEASE=<release tag> sh install.sh
 ```
 
  **Running the Script**
