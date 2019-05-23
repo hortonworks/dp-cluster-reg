@@ -1399,6 +1399,18 @@ class DpProxyTopology:
      {streamsmsgmgr}
   </topology>"""
 
+  def get_template(slef, knox, topology_util):
+    return DpProxyTopology.TEMPLATE.format(
+      knox_url = str(knox.base_url),
+      timestamp = int(time.time()),
+      cluster_manager = topology_util.cluster_manager(),
+      ranger = topology_util.ranger(),
+      atlas_api = topology_util.atlas_api(),
+      dpprofiler = topology_util.dpprofiler(),
+      beacon = topology_util.beacon(),
+      streamsmsgmgr = topology_util.streamsmsgmgr(),
+    )
+
 class DpProxyTopologyForAmbari(DpProxyTopology):
   def __init__(self, ambari, role_names, topology_util, name='dp-proxy'):
     self.ambari = ambari
@@ -1408,16 +1420,7 @@ class DpProxyTopologyForAmbari(DpProxyTopology):
 
   def deploy(self, knox):
     self.update_knox_service_defs(knox)
-    template = DpProxyTopology.TEMPLATE.format(
-      knox_url = str(knox.base_url),
-      timestamp = int(time.time()),
-      cluster_manager = self.topology_util.cluster_manager(),
-      ranger = self.topology_util.ranger(),
-      atlas_api = self.topology_util.atlas_api(),
-      dpprofiler = self.topology_util.dpprofiler(),
-      beacon = self.topology_util.beacon(),
-      streamsmsgmgr = self.topology_util.streamsmsgmgr(),
-    )
+    template = self.get_template(knox, self.topology_util)
     return knox.add_topology(self.name, template)
 
   def update_knox_service_defs(self, knox):
@@ -1438,16 +1441,7 @@ class DpProxyTopologyForCM(DpProxyTopology):
     self.topology_util = topology_util
 
   def deploy(self, knox):
-    template = DpProxyTopology.TEMPLATE.format(
-      knox_url = str(knox.base_url),
-      timestamp = int(time.time()),
-      cluster_manager = self.topology_util.cluster_manager(),
-      ranger = self.topology_util.ranger(),
-      atlas_api = self.topology_util.atlas_api(),
-      dpprofiler = self.topology_util.dpprofiler(),
-      beacon = self.topology_util.beacon(),
-      streamsmsgmgr = self.topology_util.streamsmsgmgr(),
-    )
+    template = self.get_template(knox, self.topology_util)
     return knox.add_topology(self.name, template)
 
 
@@ -1848,7 +1842,7 @@ class AmbariRegistrationFlow(BaseRegistrationFlow):
 
     knox = Knox(user.url_input('Knox URL that is network accessible from DataPlane', 'knox.url', default=str(ambari.cluster.knox_url())), knox_user=ambari.cluster.knox_user(), knox_group=ambari.cluster.knox_group())
 
-    topologies_to_deploy = [TokenTopology(dp.public_key()), DpProxyTopology(ambari, dp.dependency_names(), topology_util)]
+    topologies_to_deploy = [TokenTopology(dp.public_key()), DpProxyTopologyForAmbari(ambari, dp.dependency_names(), topology_util)]
 
     if 'BEACON' in dp.dependency_names():
         topologies_to_deploy.extend([BeaconProxyTopology(ambari, dp.dependency_names(), topology_util)])
