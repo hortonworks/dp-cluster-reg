@@ -1252,8 +1252,7 @@ class TokenTopology:
     return knox.add_topology(self.name, template)
 
 class TopologyUtil:
-  def __init__(self, ambari, role_names):
-    self.ambari = ambari
+  def __init__(self, role_names):
     self.role_names = role_names
 
   def ranger(self):
@@ -1399,7 +1398,7 @@ class DpProxyTopology:
      {streamsmsgmgr}
   </topology>"""
 
-  def get_template(slef, knox, topology_util):
+  def get_template(self, knox, topology_util):
     return DpProxyTopology.TEMPLATE.format(
       knox_url = str(knox.base_url),
       timestamp = int(time.time()),
@@ -1702,17 +1701,23 @@ class CMPrerequisites(BasePrerequisites):
   def satisfied(self):
     for  cluster in self.cm.clusters:
       if not self.stack_supported(cluster):
+        print BColors.BOLD
         print('The stack version (%s) is not supported for %s. Supported stacks are: CDH-5.17/CDH-6.1  or newer.' % (cluster.installed_stack(), cluster.cluster_name))
+        print BColors.ENDC
         return False
     if self.cm.total_clusters == 1:
       # knox related checks are only applicable when number of cluster managed by CM = 1  
       if not self.cm.kerberos_enabled():
-        print 'Kerberos is not enabled for Ambari. Please enable it by running: ambari-server setup-kerberos from your Ambari Server host.'
+        print BColors.BOLD
+        print 'Kerberos is not enabled for Cloudera Manager. Please enable it first and then re-run the script.'
+        print BColors.ENDC
         return False
       if not self.cm.knox_rules_defined():
-        print 'Some of knox properties  are not found in Cloudera Manager Configuration'
-        print 'Set all of [PROXYUSER_KNOX_GROUPS, PROXYUSER_KNOX_HOSTS,PROXYUSER_KNOX_PRINCIPAL, PROXYUSER_KNOX_USERS]'
-        print 'and restart cloudera manager server'
+        print BColors.BOLD
+        print 'Some of knox properties required for working with knox are not found in Cloudera Manager Configuration.'
+        print 'Set all of [PROXYUSER_KNOX_GROUPS, PROXYUSER_KNOX_HOSTS,PROXYUSER_KNOX_PRINCIPAL, PROXYUSER_KNOX_USERS] through ClouderaManager UI and restart cloudera manager server.'
+        print 'Re-run the script after the start is successful.'
+        print BColors.ENDC
         return False
     return True
 
