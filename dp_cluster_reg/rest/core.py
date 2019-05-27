@@ -7,6 +7,8 @@ from dp_cluster_reg.rest import JsonTransformer
 
 try:
     import cm_client
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 except ImportError:
     warnings.warn('cm_client failed to import', ImportWarning)
 

@@ -183,11 +183,13 @@ class CMRegistrationFlow(BaseRegistrationFlow):
         clusters_resp_from_dp = []
         if cm.total_clusters == 1:
             active_cluster = cm.clusters[0]
+            print BColors.BOLD
+            print "Tell me about Knox Instance" + BColors.ENDC
             knox = KnoxAdminApi(
                 user.url_input(
                     'Knox Admin URL', 'knox_admin.url', default=str(
                         active_cluster.knox_url())), user.credential_input(
-                    'Knox Admin User', 'knox_admin.user'))
+                    'Knox Admin', 'knox_admin.user'))
             topology_util = CMTopologyUtil(cm, [])
             topologies_to_deploy = [
                 TokenTopology(
