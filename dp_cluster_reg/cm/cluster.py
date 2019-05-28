@@ -43,18 +43,6 @@ class CMCluster(BaseCluster):
     def service_names(self):
         return [each.type for each in self.services()]
 
-    def add_config(self, config_type, tag, properties, note=''):
-        pass
-
-    def update_config(self, config_type, a_dict, note=''):
-        pass
-
-    def config(self, config_type):
-        pass
-
-    def config_property(self, config_type, property_name, default=None):
-        pass
-
     def knox_url(self):
         return Url.base('https', self.knox_host(), self.knox_port())
 
@@ -67,15 +55,6 @@ class CMCluster(BaseCluster):
         if config[0].value:
             return config[0].value
         return config[0].default
-
-    def knox_user(self):
-        pass
-
-    def knox_group(self):
-        pass
-
-    def cluster_realm(self):
-        pass
 
     def __str__(self):
         return '%s cluster' % self.cluster_name

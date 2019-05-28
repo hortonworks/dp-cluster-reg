@@ -33,23 +33,8 @@ class ClouderaManager(BaseClusterManager):
     def _find_clusters(self):
         response = self.client.cluster_api_instance().read_clusters(view='full')  # noqa
         return response.items
-
+    
     def _find_internal_host_name(self):
-        pass
-
-    def current_stack_version(self):
-        pass
-
-    def enable_trusted_proxy_for_ranger(self):
-        pass
-
-    def enable_trusted_proxy_for_atlas(self):
-        pass
-
-    def enable_trusted_proxy_for_beacon(self):
-        pass
-
-    def enable_trusted_proxy_for_ambari(self):
         pass
 
     def kerberos_enabled(self):
