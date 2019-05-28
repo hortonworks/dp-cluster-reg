@@ -44,13 +44,17 @@ if __name__ == '__main__':
   print '\nPlease ensure you are running from one of the hosts of the cluster\n'
   print BColors.ENDC
 
-  if not ScriptPrerequisites().satisfied():
-    sys.exit(1)
-  
-  #Get the cluster type and execute the flow
+  # Get the cluster type and execute the flow
 
   print BColors.BOLD + 'Tell me about your Cluster type' + BColors.ENDC
   flow_manager = FlowManager(user.cluster_type_input('Cluster Type ','cluster.type'))
   flow_manager.initialize()
+
+  # root user is not required for CDH based clusters.
+  # hence ScriptPrerequisites check is not required for CDH clusters
+
+  if not flow_manager.cluster_type == 'CDH':
+    if not ScriptPrerequisites().satisfied():
+      sys.exit(1)
   exit_code = flow_manager.execute()
   sys.exit(exit_code)

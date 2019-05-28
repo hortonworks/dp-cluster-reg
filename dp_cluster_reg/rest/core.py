@@ -1,5 +1,6 @@
 import json
 import urllib2
+import warnings
 
 from contextlib import closing
 from dp_cluster_reg.rest import PermissiveSslContext, SslContext
