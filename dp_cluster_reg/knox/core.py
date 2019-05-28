@@ -4,7 +4,7 @@ import grp
 from shutil import copyfile
 from dp_cluster_reg.rest import RestClient, Header
 from dp_cluster_reg import config
-
+from dp_cluster_reg.exceptions import UnexpectedHttpCode
 
 class Knox:
     def __init__(self, base_url, knox_user, knox_group,

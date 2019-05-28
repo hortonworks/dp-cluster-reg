@@ -1,5 +1,9 @@
+import json
+
 from dp_cluster_reg.base import BaseCluster
 from dp_cluster_reg.rest import Url
+from dp_cluster_reg.dataplane import Tag
+from dp_cluster_reg.exceptions import NoConfigFound
 
 
 class AmbariCluster(BaseCluster):
@@ -22,6 +26,9 @@ class AmbariCluster(BaseCluster):
 
     def service_names(self):
         return [each.name for each in self.services()]
+    
+    def has_service(self, service_name):
+        return service_name in self.service_names()
 
     def add_config(self, config_type, tag, properties, note=''):
         self.client.post(Url('configurations'), {

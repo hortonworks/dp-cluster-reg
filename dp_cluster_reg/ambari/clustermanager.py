@@ -1,7 +1,7 @@
-import base64
+import os
 from dp_cluster_reg.base import BaseClusterManager
 from dp_cluster_reg.rest import Credentials, RestClient, Header, Url
-
+from dp_cluster_reg.exceptions import NoClusterFound
 from .cluster import AmbariCluster, Stack
 
 

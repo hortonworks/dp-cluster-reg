@@ -15,22 +15,19 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 """
-
 import sys
 import pprint
-pp = pprint.PrettyPrinter(indent=4)
 
-##-----------------
-## Local imports
-##-----------------
-from dp_cluster_reg.exceptions import UnexpectedHttpCode
 from dp_cluster_reg import FlowManager, BColors, ScriptPrerequisites
 from dp_cluster_reg.config import user
- 
+
+
+pp = pprint.PrettyPrinter(indent=4)
+
 
 """
   Execution Starts here
-"""  
+"""
 if __name__ == '__main__':
 
   print BColors.HEADER
@@ -47,13 +44,12 @@ if __name__ == '__main__':
   # Get the cluster type and execute the flow
 
   print BColors.BOLD + 'Tell me about your Cluster type' + BColors.ENDC
-  flow_manager = FlowManager(user.cluster_type_input('Cluster Type ','cluster.type'))
+  flow_manager = FlowManager(user.cluster_type_input('Cluster Type ', 'cluster.type'))
   flow_manager.initialize()
 
   # root user is not required for CDH based clusters.
   # hence ScriptPrerequisites check is not required for CDH clusters
-
-  if not flow_manager.cluster_type == 'CDH':
+  if str(flow_manager.cluster_type) != 'CDH':
     if not ScriptPrerequisites().satisfied():
       sys.exit(1)
   exit_code = flow_manager.execute()

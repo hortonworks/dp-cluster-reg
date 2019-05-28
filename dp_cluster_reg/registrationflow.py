@@ -5,9 +5,10 @@ from dp_cluster_reg import BColors
 from dp_cluster_reg.dataplane import DataPlane
 from dp_cluster_reg.config import user
 from dp_cluster_reg.cm import ClouderaManager, CMPrerequisites, CMTopologyUtil
-from dp_cluster_reg.knox import Knox, KnoxAdminApi, TokenTopology, DpProxyTopologyForCM, DpProxyTopologyForAmbari
-
 from dp_cluster_reg.ambari import Ambari, AmbariPrerequisites, AmbariTopologyUtil
+from dp_cluster_reg.knox import Knox, KnoxAdminApi
+from dp_cluster_reg.knox import  TokenTopology, DpProxyTopologyForCM, DpProxyTopologyForAmbari
+from dp_cluster_reg.knox import BeaconProxyTopology, RedirectTopology
 
 
 """

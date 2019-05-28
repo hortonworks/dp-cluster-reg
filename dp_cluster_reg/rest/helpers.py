@@ -4,7 +4,7 @@ import json
 import socket
 
 from urlparse import urlparse
-
+from dp_cluster_reg.exceptions import UnexpectedHttpCode
 
 class Url:
     @classmethod

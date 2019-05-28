@@ -23,6 +23,9 @@ class CMCluster(BaseCluster):
             self.cluster_name, service_name)
         return CMService(self.client, data, self.cluster_name)
 
+    def has_service(self, service_name):
+        return service_name in self.service_names()
+    
     def services(self):
         response = self.client.services_api_instance().read_services(
             self.cluster_name, view='summary')

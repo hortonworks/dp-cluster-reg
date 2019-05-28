@@ -1,7 +1,8 @@
 import sys
 from dp_cluster_reg import config, BColors
 from .helpers import Dependency
-from dp_cluster_reg.rest import RestClient, Header, CookieThief, Credentials
+from dp_cluster_reg.rest import RestClient, Header, CookieThief, Credentials, Url
+from dp_cluster_reg.exceptions import UnexpectedHttpCode
 
 KNOX = Dependency('KNOX', 'Knox')
 RANGER = Dependency('RANGER', 'Ranger')
@@ -71,7 +72,7 @@ class DataPlane:
         if code != 200:
             raise UnexpectedHttpCode(
                 'Unexpected HTTP code: %d url: %s response: %s' %
-                (code, status_url, resp))
+                (code, version_url, resp))
         version = resp['version']
         return version
 
@@ -209,7 +210,6 @@ class DataPlane:
             'gateway' /
             'dp-proxy' /
             'ambari')
-        knox_url = str(knox.base_url / 'gateway')
         return {
             'managerUri': ambari_url_via_knox,
             'ambariUrl': ambari_url_via_knox,

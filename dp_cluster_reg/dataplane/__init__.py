@@ -1,2 +1,2 @@
-from .helpers import Dependency
+from .helpers import Dependency, Tag
 from .core import DataPlane

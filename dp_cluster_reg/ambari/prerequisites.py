@@ -18,7 +18,7 @@ class AmbariPrerequisites(BasePrerequisites):
             print 'Kerberos is not enabled for Ambari. Please enable it by running: ambari-server setup-kerberos from your Ambari Server host.'  # noqa
             return False
         if self.ambari.installed_stack().version.startswith(
-                '2.6') and not ambari.trusted_proxy_enabled():
+                '2.6') and not self.ambari.trusted_proxy_enabled():
             print 'Trusted Proxy is not enabled for Ambari. Please enable it by running: ambari-server setup-trusted-proxy from your Ambari Server host.'  # noqa
             return False
         if not self.running_on_knox_host():
