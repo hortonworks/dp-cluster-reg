@@ -1,3 +1,18 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+
+#     http://www.apache.org/licenses/LICENSE-2.0
+
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
 import sys
 import time
 
@@ -90,7 +105,6 @@ class AmbariRegistrationFlow(BaseRegistrationFlow):
             user.credential_input(
                 'Ambari admin',
                 'ambari.admin'))
-        ambari.enable_trusted_proxy_for_ambari()
 
         if not AmbariPrerequisites(ambari).satisfied():
             return 1
@@ -123,6 +137,11 @@ class AmbariRegistrationFlow(BaseRegistrationFlow):
         if 'DATA_ANALYTICS_STUDIO' in dp.dependency_names():
             topologies_to_deploy.extend([TokenTopology(
                 dp.public_key(), 'redirecttoken', 10000), RedirectTopology('redirect')])
+        
+        # Enabling trusted proxy for AMBARI
+        ambari.enable_trusted_proxy_for_ambari()
+
+        # Deploying correct topology files 
         for topology in topologies_to_deploy:
             print 'Deploying Knox topology:', topology.name
             topology.deploy(knox)
@@ -199,9 +218,14 @@ class CMRegistrationFlow(BaseRegistrationFlow):
             for topology in topologies_to_deploy:
                 print 'Deploying Knox topology:', topology.name
                 topology.deploy(knox)
-            # communication check for
+             
             clusters_resp_from_dp = dp.check_cm(cm, knox)
         elif cm.total_clusters > 1:
+            #
+            # if clusters managed by CM > 1 
+            #  - knox based communication is not supported.
+            #  - commmunication between Dataplane and CM happens with CM basic auth
+            #   
             clusters_resp_from_dp = dp.check_cm(cm, None)
 
         if not clusters_resp_from_dp:
